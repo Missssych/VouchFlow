@@ -1,0 +1,12 @@
+[package]
+name = "App-Voucher"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+slint = {version="1.14.1", features = ["renderer-winit-skia"]}
+i-slint-backend-winit = "1.14.1"
+
+[build-dependencies]
+slint-build = "1.14"

@@ -1,0 +1,114 @@
+import { Button, VerticalBox } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "App-Voucher";
+    min-width: 1080px;
+    min-height: 620px;
+    // width: 600px;
+    // height: 450px;
+    no-frame: true;
+    background: transparent;
+    in-out property <bool> is-maximized: false;
+    callback close_window();
+    callback minimize_window();
+    callback maximize_window();
+    callback move_window();
+    Rectangle {
+        background: #1e1e1e;
+        border-radius: is-maximized ? 0px : 10px;
+        clip: true;
+        VerticalLayout {
+            // Custom Title Bar
+            Rectangle {
+                height: 35px;
+                background: #1e1e1e;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    spacing: 8px;
+                    alignment: start;
+
+                    // Traffic lights vertical center
+                    VerticalLayout {
+                        alignment: center;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            // Red (Close)
+                            Rectangle {
+                                width: 12px;
+                                height: 12px;
+                                border-radius: 6px;
+                                background: #FF5F56;
+                                TouchArea {
+                                    clicked => {
+                                        root.close_window();
+                                    }
+                                }
+                            }
+                            // Yellow (Minimize)
+                            Rectangle {
+                                width: 12px;
+                                height: 12px;
+                                border-radius: 6px;
+                                background: #FFBD2E;
+                                TouchArea {
+                                    clicked => {
+                                        root.minimize_window();
+                                    }
+                                }
+                            }
+                            // Green (Maximize)
+                            Rectangle {
+                                width: 12px;
+                                height: 12px;
+                                border-radius: 6px;
+                                background: #27C93F;
+                                TouchArea {
+                                    clicked => {
+                                        root.maximize_window();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Title Text
+                Text {
+                    text: root.title;
+                    color: #cccccc;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: 100%;
+                    height: 100%;
+                }
+
+                // Drag Logic
+                TouchArea {
+                    z: -1;
+                    moved => {
+                        root.move_window();
+                    }
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            root.move_window();
+                        }
+                    }
+                }
+            }
+
+            // Main Content Area
+            Rectangle {
+                background: #1e1e1e;
+                VerticalBox {
+                    Text {
+                        text: "Welcome to Custom Dark App";
+                        color: white;
+                        font-size: 20px;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
