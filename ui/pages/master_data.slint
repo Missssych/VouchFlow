@@ -1,0 +1,822 @@
+import { Palette } from "../palette.slint";
+import {
+    Icons,
+    EllipsisIcon,
+    XIcon,
+    PlusIcon,
+    BarcodeIcon,
+    CircleCheckIcon,
+    CircleXIcon,
+    LoaderIcon,
+} from "@lucide";
+import {
+    CustomTabs,
+    CustomTableView,
+    CustomTextInput,
+    OverlaySlidePanel,
+    CustomComboBox,
+    CustomButton,
+    DatePickerPopup,
+} from "../components/widgets.slint";
+import { StokState } from "../state.slint";
+
+export component MasterData inherits Rectangle {
+    background: transparent;
+    private property <int> active-tab: 0;
+    property <string> search-query: "";
+    function pad2(value: int) -> string {
+        if (value < 10) {
+            return "0" + value;
+        }
+        return "" + value;
+    }
+    function to-iso-date(year: int, month: int, day: int) -> string {
+        return "" + year + "-" + root.pad2(month) + "-" + root.pad2(day);
+    }
+    function ensure-default-date() {
+        if (StokState.date-from == "" || StokState.date-to == "") {
+            let today = root.to-iso-date(StokState.current-year, StokState.current-month, StokState.current-day);
+            StokState.date-from = today;
+            StokState.date-to = today;
+        }
+    }
+    function apply-active-filters() {
+        StokState.load-active-stocks();
+    }
+    function apply-used-filters() {
+        StokState.load-used-stocks(StokState.date-from, StokState.date-to);
+    }
+    function apply-tab-filters() {
+        if (root.active-tab == 0) {
+            root.apply-active-filters();
+        } else {
+            root.apply-used-filters();
+        }
+    }
+    
+    // Helper function to reset form
+    function reset-voucher-form() {
+        StokState.edit-stock-id = -1;
+        StokState.form-provider-index = 0;
+        StokState.form-kode-addon = "";
+        StokState.form-barcode = "";
+        StokState.form-serial-number = "";
+        StokState.form-expired-date = "";
+    }
+    
+    // Init callback
+    init => {
+        root.ensure-default-date();
+        StokState.load-active-stocks();
+        StokState.load-stock-summary();
+        root.search-query = StokState.search-query-tab0;
+    }
+    VerticalLayout {
+        HorizontalLayout {
+            spacing: 4px;
+            // Tab bar
+            CustomTabs {
+                fixed-button-width: true;
+                button-min-width: 200px;
+                tabs: [
+                    { title: "Stok Voucher", has-icon: true, icon: Icons.TicketsIcon },
+                    { title: "Voucher Useds", has-icon: true, icon: Icons.TrashIcon },
+                ];
+                active-tab <=> root.active-tab;
+                tab-changed(index) => {
+                    root.active-tab = index;
+                    root.search-query = index == 0 ? StokState.search-query-tab0 : StokState.search-query-tab1;
+                    if (index != 0) {
+                        StokState.form-panel-open = false;
+                        StokState.summary-panel-open = false;
+                    }
+                    if (index == 1) {
+                        root.apply-used-filters();
+                    } else {
+                        root.apply-active-filters();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                visible: root.active-tab == 1;
+                width: 240px;
+                height: 35px;
+                alignment: space-between;
+                // Start Date Picker
+                layout-date1 := Rectangle {
+                    width: 100px;
+                    background: Palette.bg_surface_1;
+                    border-color: Palette.bg;
+                    border-width: 1px;
+                    border-radius: 4px;
+                    property <int> selected-year: StokState.current-year;
+                    property <int> selected-month: StokState.current-month;
+                    property <int> selected-day: StokState.current-day;
+                    Text {
+                        height: layout-date1.height;
+                        text: parent.selected-day + "/" + parent.selected-month + "/" + parent.selected-year;
+                        font-size: 12px;
+                        color: root.active-tab == 1 ? Palette.text : Palette.text_secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        enabled: root.active-tab == 1;
+                        clicked => {
+                            start-date-popup.show();
+                        }
+                    }
+
+                    start-date-popup := DatePickerPopup {
+                        date: { year: parent.selected-year, month: parent.selected-month, day: parent.selected-day };
+                        accepted(date) => {
+                            parent.selected-year = date.year;
+                            parent.selected-month = date.month;
+                            parent.selected-day = date.day;
+                            StokState.date-from = root.to-iso-date(date.year, date.month, date.day);
+                            if (root.active-tab == 1) {
+                                root.apply-used-filters();
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    width: 20px;
+                    text: "s/d";
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                // End Date Picker
+                layout-date2 := Rectangle {
+                    width: 100px;
+                    background: Palette.bg_surface_1;
+                    border-color: Palette.bg;
+                    border-width: 1px;
+                    border-radius: 4px;
+                    property <int> selected-year: StokState.current-year;
+                    property <int> selected-month: StokState.current-month;
+                    property <int> selected-day: StokState.current-day;
+                    Text {
+                        height: layout-date2.height;
+                        text: parent.selected-day + "/" + parent.selected-month + "/" + parent.selected-year;
+                        font-size: 12px;
+                        color: root.active-tab == 1 ? Palette.text : Palette.text_secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        enabled: root.active-tab == 1;
+                        clicked => {
+                            end-date-popup.show();
+                        }
+                    }
+
+                    end-date-popup := DatePickerPopup {
+                        date: { year: parent.selected-year, month: parent.selected-month, day: parent.selected-day };
+                        accepted(date) => {
+                            parent.selected-year = date.year;
+                            parent.selected-month = date.month;
+                            parent.selected-day = date.day;
+                            StokState.date-to = root.to-iso-date(date.year, date.month, date.day);
+                            if (root.active-tab == 1) {
+                                root.apply-used-filters();
+                            }
+                        }
+                    }
+                }
+            } 
+            // Provider ComboBox
+            CustomComboBox {
+                width: 120px;
+                height: 35px;
+                model: ["Semua", "Byu", "Smartfren", "Telkomsel"];
+                current-index <=> StokState.provider-filter-index;
+                selected(value) => {
+                    root.apply-tab-filters();
+                }
+            }
+
+            CustomTextInput {
+                height: 35px;
+                width: 180px;
+                placeholder: "Cari Voucher";
+                input-type: number;
+                icon: Icons.SearchIcon;
+                text <=> root.search-query;
+                edited(text) => {
+                    if (root.active-tab == 0) {
+                        StokState.search-query-tab0 = text;
+                    } else {
+                        StokState.search-query-tab1 = text;
+                    }
+                    root.apply-tab-filters();
+                }
+                cleared() => {
+                    if (root.active-tab == 0) {
+                        StokState.search-query-tab0 = "";
+                    } else {
+                        StokState.search-query-tab1 = "";
+                    }
+                    root.apply-tab-filters();
+                }
+            }
+        }
+        
+        // Content area
+        Rectangle {
+            vertical-stretch: 1;
+            // background: Palette.bg_surface_1;
+            border-radius: 6px;
+            clip: true;
+            
+            // Tab 0: Stok Voucher (Active)
+            if root.active-tab == 0: Rectangle {
+                width: 100%;
+                height: 100%;
+                table := CustomTableView {
+                    width: 100%;
+                    height: 100%;
+                    columns: [
+                        { title: "Provider" },
+                        { title: "Kode Addon" },
+                        { title: "Barcode" },
+                        { title: "Serial Number" },
+                        { title: "Expired Date" },
+                        { title: "Status" },
+                        { title: "Waktu Input" },
+                    ];
+                    rows: StokState.active-stocks;
+                    context-menu-items: [
+                        {
+                            title: "Edit",
+                            action: "edit",
+                            disabled: table.selected-count != 1,
+                            icon: Icons.FilePenLineIcon
+                        },
+                        { title: "Hapus", action: "delete", icon: Icons.TrashIcon },
+                        {
+                            title: "Cek Voucher",
+                            action: "cek",
+                            icon: Icons.SearchIcon,
+                            disabled: table.selected-count != 1 || StokState.active-stocks[table.current-row][0].text == "Smartfren"
+                        },
+                        { title: "Ubah status ke Used", action: "alihkan", icon: Icons.FileInputIcon },
+                    ];
+                    context-menu-activated(action) => {
+                        if (action == "edit") {
+                            // Get selected ID from active-stock-ids using table row index
+                            if (table.selected-count == 1 && table.current-row >= 0) {
+                                StokState.load-stock-for-edit(StokState.active-stock-ids[table.current-row]);
+                            }
+                        } else if (action == "delete") {
+                            // Determine selection range
+                            if (table.selection-start >= 0 && table.selection-end >= 0) {
+                                StokState.delete-stocks-by-range(
+                                    min(table.selection-start, table.selection-end),
+                                    max(table.selection-start, table.selection-end),
+                                    StokState.active-stock-ids);
+                            } else if (table.current-row >= 0) {
+                                StokState.delete-stocks-by-range(
+                                    table.current-row,
+                                    table.current-row,
+                                    StokState.active-stock-ids);
+                            }
+                        } else if (action == "cek") {
+                            if (table.selected-count == 1 && table.current-row >= 0) {
+                                // Get barcode (index 2) and provider (index 0) from the row
+                                StokState.check-voucher(
+                                    StokState.active-stocks[table.current-row][2].text,  // barcode
+                                    StokState.active-stocks[table.current-row][0].text   // provider
+                                );
+                            }
+                        } else if (action == "alihkan") {
+                            if (table.selection-start >= 0 && table.selection-end >= 0) {
+                                StokState.change-status-by-range(
+                                    min(table.selection-start, table.selection-end),
+                                    max(table.selection-start, table.selection-end),
+                                    StokState.active-stock-ids,
+                                    "USED");
+                            } else if (table.current-row >= 0) {
+                                StokState.change-status-by-range(
+                                    table.current-row,
+                                    table.current-row,
+                                    StokState.active-stock-ids,
+                                    "USED");
+                            }
+                        }
+                    }
+                }
+                // FAB + bubbles
+                fab-stack := Rectangle {
+                    property <length> fab-size: 44px;
+                    property <length> bubble-size: 34px;
+                    property <length> bubble-hover-size: 38px;
+                    property <length> bubble-gap: 10px;
+                    property <length> stack-padding: 12px;
+                    width: max(fab-size, bubble-hover-size) + 12px;
+                    height: fab-size + (bubble-gap + bubble-size) * 2 + 6px;
+                    x: parent.width - self.width - stack-padding;
+                    y: parent.height - self.height - stack-padding;
+                    z: 10;
+                    clip: false;
+                    property <length> fab-center-y: self.height - fab-size / 2;
+                    property <length> bubble-step: bubble-size + bubble-gap;
+                    property <length> bubble1-center-y: fab-center-y - fab-size / 2 - bubble-gap - bubble-size / 2;
+                    property <length> bubble2-center-y: bubble1-center-y - bubble-step;
+                    property <bool> fab-open: hover-zone.has-hover || main-touch.has-hover || add-touch.has-hover || barcode-touch.has-hover;
+                    property <float> menu-progress: fab-open ? 1 : 0;
+                    animate menu-progress {
+                        duration: 180ms;
+                        easing: ease-out;
+                    }
+                    hover-zone := TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                    }
+
+                    bubble-add := Rectangle {
+                        property <length> target-size: add-touch.has-hover ? parent.bubble-hover-size : parent.bubble-size;
+                        width: target-size;
+                        height: target-size;
+                        x: (parent.width - self.width) / 2;
+                        property <length> closed-center-y: parent.fab-center-y;
+                        property <length> open-center-y: parent.bubble1-center-y;
+                        y: (closed-center-y + (open-center-y - closed-center-y) * parent.menu-progress) - self.height / 2;
+                        opacity: parent.menu-progress;
+                        visible: parent.menu-progress > 0.01;
+                        background: Palette.accent;
+                        border-radius: self.width / 2;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: #00000040;
+                        animate width, height {
+                            duration: 120ms;
+                            easing: ease-out;
+                        }
+                        PlusIcon {
+                            width: 18px;
+                            height: 18px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Palette.bg;
+                        }
+
+                        add-touch := TouchArea {
+                            enabled: fab-stack.menu-progress > 0.2;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.reset-voucher-form();
+                                StokState.summary-panel-open = false;
+                                StokState.form-panel-open = true;
+                            }
+                        }
+                    }
+
+                    bubble-barcode := Rectangle {
+                        property <length> target-size: barcode-touch.has-hover ? parent.bubble-hover-size : parent.bubble-size;
+                        width: target-size;
+                        height: target-size;
+                        x: (parent.width - self.width) / 2;
+                        property <length> closed-center-y: parent.fab-center-y;
+                        property <length> open-center-y: parent.bubble2-center-y;
+                        y: (closed-center-y + (open-center-y - closed-center-y) * parent.menu-progress) - self.height / 2;
+                        opacity: parent.menu-progress;
+                        visible: parent.menu-progress > 0.01;
+                        background: Palette.accent;
+                        border-radius: self.width / 2;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        drop-shadow-blur: 8px;
+                        drop-shadow-color: #00000040;
+                        animate width, height {
+                            duration: 120ms;
+                            easing: ease-out;
+                        }
+                        BarcodeIcon {
+                            width: 18px;
+                            height: 18px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Palette.bg;
+                        }
+
+                        barcode-touch := TouchArea {
+                            enabled: fab-stack.menu-progress > 0.2;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                StokState.form-panel-open = false;
+                                StokState.summary-panel-open = true;
+                                StokState.load-stock-summary();
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.fab-size;
+                        height: parent.fab-size;
+                        x: (parent.width - self.width) / 2;
+                        y: parent.height - self.height;
+                        background: Palette.accent;
+                        border-radius: self.width / 2;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        drop-shadow-blur: 10px;
+                        drop-shadow-color: #00000045;
+                        if parent.fab-open: XIcon {
+                            width: 20px;
+                            height: 20px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Palette.bg;
+                        }
+                        if !parent.fab-open: EllipsisIcon {
+                            width: 20px;
+                            height: 20px;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                            colorize: Palette.bg;
+                        }
+                        main-touch := TouchArea {
+                            mouse-cursor: pointer;
+                        }
+                    }
+                }
+            }
+            
+            // Tab 1: Voucher Useds
+            if root.active-tab == 1: Rectangle {
+                width: 100%;
+                height: 100%;
+                table1 := CustomTableView {
+                    width: 100%;
+                    height: 100%;
+                    columns: [
+                        { title: "Provider" },
+                        { title: "Kode Addon" },
+                        { title: "Barcode" },
+                        { title: "Serial Number" },
+                        { title: "Expired Date" },
+                        { title: "Status" },
+                        { title: "Waktu Terpakai" },
+                    ];
+                    rows: StokState.used-stocks;
+                    context-menu-items: [
+                        {
+                            title: "Cek Voucher",
+                            action: "cek",
+                            icon: Icons.SearchIcon,
+                            disabled: table1.selected-count != 1 || StokState.used-stocks[table1.current-row][0].text == "Smartfren"
+                        },
+                        { title: "Alihkan ke Stok", action: "alihkan", icon: Icons.FileOutputIcon },
+                    ];
+                    context-menu-activated(action) => {
+                        if (action == "cek") {
+                            if (table1.selected-count == 1 && table1.current-row >= 0) {
+                                // Get barcode (index 2) and provider (index 0) from the row
+                                StokState.check-voucher(
+                                    StokState.used-stocks[table1.current-row][2].text,  // barcode
+                                    StokState.used-stocks[table1.current-row][0].text   // provider
+                                );
+                            }
+                        } else if (action == "alihkan") {
+                            if (table1.selection-start >= 0 && table1.selection-end >= 0) {
+                                StokState.change-status-by-range(
+                                    min(table1.selection-start, table1.selection-end),
+                                    max(table1.selection-start, table1.selection-end),
+                                    StokState.used-stock-ids,
+                                    "ACTIVE");
+                            } else if (table1.current-row >= 0) {
+                                StokState.change-status-by-range(
+                                    table1.current-row,
+                                    table1.current-row,
+                                    StokState.used-stock-ids,
+                                    "ACTIVE");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tambah-voucher-panel := OverlaySlidePanel {
+        open: StokState.form-panel-open;
+        panel-width: 440px;
+        title: StokState.edit-stock-id == -1 ? "Input Voucher" : "Edit Voucher";
+        close-requested => {
+            StokState.form-panel-open = false;
+        }
+        GridLayout {
+            spacing: 8px;
+            Text {
+                row: 0;
+                col: 0;
+                text: "Provider";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomComboBox {
+                row: 0;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                model: ["Byu", "Smartfren", "Telkomsel"];
+                current-index <=> StokState.form-provider-index;
+            }
+
+            Text {
+                row: 1;
+                col: 0;
+                text: "Kode Addon";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 1;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Kode Addon";
+                text <=> StokState.form-kode-addon;
+            }
+
+            Text {
+                row: 2;
+                col: 0;
+                text: "Barcode";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 2;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Barcode";
+                input-type: number;
+                text <=> StokState.form-barcode;
+            }
+
+            Text {
+                row: 3;
+                col: 0;
+                text: "Serial Number";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 3;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Serial Number";
+                input-type: number;
+                text <=> StokState.form-serial-number;
+            }
+
+            Text {
+                row: 4;
+                col: 0;
+                text: "Expired Date";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 4;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "YYYY-MM-DD";
+                text <=> StokState.form-expired-date;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: space-between;
+            padding-top: 16px;
+            CustomButton {
+                text: "Cek Expired";
+                height: 32px;
+                enabled: StokState.form-provider-index == 1 ? false : true;
+                clicked => {
+                    StokState.check-expired(StokState.providers[StokState.form-provider-index + 1], StokState.form-barcode);
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                CustomButton {
+                    text: "Batal";
+                    height: 32px;
+                    clicked => {
+                        StokState.form-panel-open = false;
+                    }
+                }
+
+                CustomButton {
+                    text: "Simpan";
+                    height: 32px;
+                    clicked => {
+                        StokState.save-stock(
+                            StokState.edit-stock-id,
+                            StokState.providers[StokState.form-provider-index + 1],  // +1 to skip "Semua"
+                            StokState.form-kode-addon,
+                            StokState.form-barcode,
+                            StokState.form-serial-number,
+                            StokState.form-expired-date);
+                    }
+                }
+            }
+        }
+    }
+
+    stok-kode-panel := OverlaySlidePanel {
+        open: StokState.summary-panel-open;
+        panel-width: 420px;
+        title: "Jumlah Kode Stok Voucher";
+        close-requested => {
+            StokState.summary-panel-open = false;
+        }
+        VerticalLayout {
+            alignment: start;
+            spacing: 8px;
+            Text {
+                text: "Ringkasan jumlah voucher per kode addon.";
+                font-size: 12px;
+                color: Palette.text_secondary;
+            }
+
+            CustomTableView {
+                width: 100%;
+                height: 300px;
+                show-selection-column: false;
+                columns: [
+                    { title: "Kode Addon" },
+                    { title: "Jumlah" },
+                ];
+                rows: StokState.stock-summary;
+            }
+        }
+    }
+    
+    // Check Voucher Dialog
+    if StokState.check-dialog-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+        z: 100;
+        TouchArea {
+            clicked => {
+                StokState.check-dialog-open = false;
+                StokState.check-dialog-countdown = 5;
+            }
+        }
+
+        Rectangle {
+            width: 360px;
+            height: 260px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.bg_surface_1;
+            border-radius: 12px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            TouchArea {
+                // Prevent click through
+            }
+
+            VerticalLayout {
+                padding-top: 16px;
+                padding-bottom: 16px;
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 16px;
+                Text {
+                    text: "Hasil Cek Voucher";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Palette.text;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Palette.border;
+                }
+
+                if StokState.is-checking: HorizontalLayout {
+                    height: 80px;
+                    alignment: center;
+                    LoaderIcon {
+                        width: 32px;
+                        height: 32px;
+                        colorize: Palette.accent;
+                    }
+                }
+                if !StokState.is-checking: VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Produk:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: StokState.check-result-product;
+                            font-size: 12px;
+                            color: Palette.text;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Expired:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: StokState.check-result-expiry;
+                            font-size: 12px;
+                            color: Palette.text;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Status:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: StokState.check-result-status;
+                            font-size: 12px;
+                            color: StokState.check-result-status == "SUCCESS" ? Palette.success : Palette.error;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    if StokState.check-result-message != "": Text {
+                        text: StokState.check-result-message;
+                        font-size: 11px;
+                        color: Palette.text_secondary;
+                        wrap: word-wrap;
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                CustomButton {
+                    text: self.has-hover ? "Tutup" : (StokState.is-checking ? "Mengecek voucher..." : "Menutup dalam " + StokState.check-dialog-countdown + " detik");
+                    height: 32px;
+                    horizontal-stretch: 1;
+                    clicked => {
+                        StokState.check-dialog-open = false;
+                        StokState.check-dialog-countdown = 5;
+                    }
+                }
+            }
+        }
+    }
+}

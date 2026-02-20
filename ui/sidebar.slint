@@ -1,0 +1,322 @@
+import { Palette } from "palette.slint";
+import { AppState } from "state.slint";
+import {
+    LayoutDashboardIcon,
+    MonitorIcon,
+    PackageSearchIcon,
+    DatabaseIcon,
+    WrenchIcon,
+    TerminalIcon,
+    SettingsIcon,
+    ChevronRightIcon,
+    BoxesIcon,
+    PlayIcon,
+    SquareIcon,
+} from "@lucide";
+
+// Menu item data structure
+struct MenuItem {
+    id: int,
+    name: string,
+}
+
+// Single sidebar menu item component
+component SidebarItem inherits Rectangle {
+    in property <bool> expanded: false;
+    in property <bool> is-active: false;
+    in property <string> label: "Menu";
+    in property <int> icon-type: 0; // 0: Dashboard, 1: Monitor, 2: Package, 3: Database, 4: Settings
+    
+    callback clicked();
+    height: 40px;
+    border-radius: 8px;
+    background: is-active ? Palette.accent : (touch.has-hover ? Palette.bg_surface_2 : transparent);
+    animate background {
+        duration: 150ms;
+        easing: ease;
+    }
+    HorizontalLayout {
+        // Tidak ada padding - icon container sudah handle centering
+        padding: 0px;
+        spacing: 0px;
+        alignment: start;
+        
+        // Icon container dengan width tetap = lebar sidebar saat collapse (56px - 8px*2 padding = 40px)
+        // Icon akan selalu center di dalam container ini
+        Rectangle {
+            width: 40px; // Fixed width agar icon tidak bergeser
+            height: parent.height;
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 24px;
+                        height: 24px;
+                        
+                        // Dashboard/Monitor icon
+                        if icon-type == 0: MonitorIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        
+                        // Package icon
+                        if icon-type == 1: PackageSearchIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        
+                        // Database icon
+                        if icon-type == 2: DatabaseIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        
+                        // Search icon
+                        if icon-type == 3: WrenchIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        
+                        // Terminal icon
+                        if icon-type == 4: TerminalIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        
+                        // Settings icon
+                        if icon-type == 5: SettingsIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        // Play icon
+                        if icon-type == 6: PlayIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                        // Square/Stop icon
+                        if icon-type == 7: SquareIcon {
+                            width: 20px;
+                            height: 20px;
+                            colorize: is-active ? Palette.bg : Palette.accent;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Label (only visible when expanded) - muncul di sebelah kanan icon
+        if expanded: Text {
+            text: label;
+            color: is-active ? Palette.bg : Palette.accent;
+            font-size: 13px;
+            font-weight: is-active ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// Sidebar Logo component
+component SidebarLogo inherits Rectangle {
+    in property <bool> expanded: false;
+    in property <string> app-name: "App-Voucher";
+    callback clicked();
+    height: 48px;
+    border-radius: 8px;
+    background: touch.has-hover && !expanded ? Palette.bg_surface_2 : transparent;
+    animate background {
+        duration: 150ms;
+        easing: ease;
+    }
+    HorizontalLayout {
+        padding: 0px;
+        spacing: 4px;
+        alignment: start;
+        
+        // Logo container (fixed width seperti icon menu)
+        Rectangle {
+            width: 40px;
+            height: parent.height;
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    
+                    // Logo icon (tampil saat tidak hover atau saat expanded)
+                    if !touch.has-hover || expanded: Image {
+                        source: @image-url("../assets/logo.svg");
+                        width: 40px;
+                        height: 40px;
+                    }
+                    
+                    // Expand icon (tampil saat hover dan collapsed)
+                    if touch.has-hover && !expanded: ChevronRightIcon {
+                        width: 22px;
+                        height: 22px;
+                        colorize: Palette.accent;
+                    }
+                }
+            }
+        }
+        
+        // App name (only visible when expanded)
+        if expanded: VerticalLayout {
+            alignment: center;
+            Text {
+                text: app-name;
+                color: Palette.text-primary;
+                font-size: 16px;
+                font-weight: 700;
+                horizontal-alignment: left;
+            }
+
+            Text {
+                text: "Voucher Management App";
+                color: Palette.text-secondary;
+                font-size: 11px;
+                font-weight: 400;
+                horizontal-alignment: left;
+                wrap: word-wrap;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component Sidebar inherits Rectangle {
+    in-out property <bool> expanded: false;
+    in-out property <int> active-menu: 0;
+    callback menu-changed(int);
+    
+    // Animated width
+    width: expanded ? 180px : 56px;
+    // background: Palette.bg-surface-1;
+    border-radius: 12px;
+    animate width {
+        duration: 250ms;
+        easing: ease-in-out;
+    }
+    VerticalLayout {
+        padding: 8px;
+        spacing: 4px;
+        alignment: space-between;
+        
+        
+        
+        // Menu items
+        VerticalLayout {
+            spacing: 8px;
+            
+            // Logo row
+            SidebarLogo {
+                expanded: root.expanded;
+                app-name: "VOUCHFLOW";
+                clicked => {
+                    root.expanded = !root.expanded;
+                }
+            }
+            // Spacer
+            Rectangle {
+                height: 8px;
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 0;
+                label: "Dashboard";
+                icon-type: 0;
+                clicked => {
+                    root.active-menu = 0;
+                    root.menu-changed(0);
+                }
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 1;
+                label: "Produk";
+                icon-type: 1;
+                clicked => {
+                    root.active-menu = 1;
+                    root.menu-changed(1);
+                }
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 2;
+                label: "Master Data";
+                icon-type: 2;
+                clicked => {
+                    root.active-menu = 2;
+                    root.menu-changed(2);
+                }
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 3;
+                label: "Utilitas";
+                icon-type: 3;
+                clicked => {
+                    root.active-menu = 3;
+                    root.menu-changed(3);
+                }
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 4;
+                label: "Logs Terminal";
+                icon-type: 4;
+                clicked => {
+                    root.active-menu = 4;
+                    root.menu-changed(4);
+                }
+            }
+
+            SidebarItem {
+                expanded: root.expanded;
+                is-active: root.active-menu == 5;
+                label: "Settings";
+                icon-type: 5;
+                clicked => {
+                    root.active-menu = 5;
+                    root.menu-changed(5);
+                }
+            }
+        }
+        
+        // Start/Stop Button
+        SidebarItem {
+            expanded: root.expanded;
+            is-active: AppState.server-connected;
+            label: AppState.server-connected ? "Hentikan Server" : "Jalankan Server";
+            icon-type: AppState.server-connected ? 7 : 6;
+            clicked => {
+                AppState.toggle-server();
+            }
+        }
+    }
+}

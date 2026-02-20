@@ -1,0 +1,132 @@
+import { Palette } from "../palette.slint";
+import { Icons } from "@lucide";
+
+export component CustomTextInput inherits Rectangle {
+    in-out property <string> text <=> text-input.text;
+    in property <string> placeholder: "";
+    in property <image> icon: @image-url("");
+    in property <image> delete-icon: Icons.XIcon;
+    in property <bool> show-delete: true;
+    in property <bool> enabled: true;
+    in property <length> icon-size: 14px;
+    in property <length> spacing: 6px;
+    in property <length> content-padding: 8px;
+    in property <length> font-size: 14px;
+    in property <int> font-weight: 400;
+    in property <brush> text-color: Palette.text_primary;
+    in property <brush> placeholder-color: Palette.text_secondary;
+    in property <brush> icon-color: Palette.icon_default;
+    in property <InputType> input-type: InputType.text;
+    in property <TextHorizontalAlignment> horizontal-alignment: TextHorizontalAlignment.left;
+    in property <bool> read-only: false;
+    out property <bool> has-focus: text-input.has-focus;
+    callback accepted(text: string);
+    callback edited(text: string);
+    callback cleared();
+    property <length> content-height: max(0px, root.height - root.content-padding * 2);
+    background: Palette.bg_surface_2;
+    border-color: Palette.border;
+    border-width: 1px;
+    border-radius: 4px;
+    clip: true;
+    height: max(32px, root.icon-size + root.content-padding * 2);
+    states [
+        focused when text-input.has-focus: {
+            root.border-color: Palette.accent;
+        }
+        disabled when !root.enabled: {
+            root.opacity: 0.6;
+        }
+    ]
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        padding: root.content-padding;
+        spacing: root.spacing;
+        alignment: stretch;
+        if root.icon.width > 0: Rectangle {
+            width: root.icon-size;
+            height: root.content-height;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: root.icon-size;
+                    height: root.icon-size;
+                    source: root.icon;
+                    colorize: root.icon-color;
+                }
+            }
+        }
+        input-area := Rectangle {
+            horizontal-stretch: 1;
+            height: root.content-height;
+            clip: true;
+            text-input := TextInput {
+                property <length> computed-x: 0px;
+                x: min(0px, max(parent.width - self.width - self.text-cursor-width, self.computed-x));
+                width: max(parent.width - self.text-cursor-width, self.preferred-width);
+                height: parent.height;
+                vertical-alignment: center;
+                single-line: true;
+                enabled: root.enabled;
+                read-only: root.read-only;
+                color: root.text-color;
+                font-size: root.font-size;
+                font-weight: root.font-weight;
+                horizontal-alignment: root.horizontal-alignment;
+                input-type: root.input-type;
+                cursor-position-changed(cursor-position) => {
+                    if (cursor-position.x + self.computed-x < 0px) {
+                        self.computed-x = -cursor-position.x;
+                    } else if (cursor-position.x + self.computed-x > parent.width - self.text-cursor-width) {
+                        self.computed-x = parent.width - cursor-position.x - self.text-cursor-width;
+                    }
+                }
+                accepted => {
+                    root.accepted(self.text);
+                }
+                edited => {
+                    root.edited(self.text);
+                }
+            }
+
+            placeholder-label := Text {
+                width: parent.width;
+                height: parent.height;
+                text: (root.text == "" && text-input.preedit-text == "") ? root.placeholder : "";
+                vertical-alignment: center;
+                horizontal-alignment: root.horizontal-alignment;
+                font-size: root.font-size;
+                font-weight: root.font-weight;
+                color: root.placeholder-color;
+                accessible-role: none;
+            }
+        }
+
+        if root.show-delete && root.text != "": Rectangle {
+            width: root.icon-size + 6px;
+            height: root.content-height;
+            border-radius: 4px;
+            background: transparent;
+            VerticalLayout {
+                alignment: center;
+                Image {
+                    width: root.icon-size;
+                    height: root.icon-size;
+                    source: root.delete-icon;
+                    colorize: root.icon-color;
+                }
+            }
+
+            TouchArea {
+                enabled: root.enabled;
+                mouse-cursor: pointer;
+                clicked => {
+                    root.text = "";
+                    root.cleared();
+                    text-input.focus();
+                }
+            }
+        }
+    }
+}

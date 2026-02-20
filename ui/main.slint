@@ -1,89 +1,109 @@
-import { Button, VerticalBox } from "std-widgets.slint";
+import { Palette } from "palette.slint";
+import { Header, Footer, ConfirmDialog } from "components/widgets.slint";
+import { Sidebar } from "sidebar.slint";
+import {
+    Dashboard,
+    Produk,
+    MasterData,
+    Utility,
+    Settings,
+    LogsTerminal,
+} from "pages/page.slint";
+import {
+    AppState,
+    ProdukState,
+    StokState,
+    UtilityState,
+    DashboardState,
+    SettingsState,
+    LogsState,
+} from "state.slint";
+export { AppState, ProdukState, StokState, UtilityState, DashboardState, SettingsState, LogsState }
 
 export component AppWindow inherits Window {
-    title: "App-Voucher";
-    min-width: 1080px;
-    min-height: 620px;
-    // width: 600px;
-    // height: 450px;
+    min-width: 1150px;
+    min-height: 650px;
+    title: "MainWindow";
+    icon: @image-url("../assets/rv_icon_256.png");
     no-frame: true;
     background: transparent;
-    in-out property <bool> is-maximized: false;
+    
+    // Property for close confirmation dialog
+    private property <bool> show-close-dialog: false;
+    
+    // Window control callbacks
     callback close_window();
     callback minimize_window();
     callback maximize_window();
     callback move_window();
+    
+    // Menu change callback
+    callback menu-changed(int);
+    
+    // Background with rounded corners
     Rectangle {
-        background: #1e1e1e;
-        border-radius: is-maximized ? 0px : 10px;
+        border-radius: AppState.is-maximized ? 0px : 12px;
         clip: true;
-        VerticalLayout {
-            // Custom Title Bar
+        background: Palette.bg;
+    }
+    
+    // Main layout: Header → Body → Footer
+    VerticalLayout {
+        // ============================================
+        // HEADER (34px)
+        // ============================================
+        Header {
+            is-connected: AppState.server-connected;
+            status-text: AppState.server-status;
+            close-window => {
+                // Check if server is connected before closing
+                if (AppState.server-connected) {
+                    root.show-close-dialog = true;
+                } else {
+                    root.close_window();
+                }
+            }
+            minimize-window => {
+                root.minimize_window();
+            }
+            maximize-window => {
+                root.maximize_window();
+            }
+            move-window => {
+                root.move_window();
+            }
+        }
+        
+        // ============================================
+        // BODY (flex 1) - Sidebar + Content
+        // ============================================
+        HorizontalLayout {
+            vertical-stretch: 1;
+            padding-left: 6px;
+            padding-right: 6px;
+            spacing: 6px;
+            
+            // Sidebar (collapsible)
+            sidebar := Sidebar {
+                active-menu: AppState.active-tab;
+                menu-changed(index) => {
+                    AppState.active-tab = index;
+                    AppState.tab-changed(index);
+                    root.menu-changed(index);
+                }
+            }
+            
+            // Content Area
             Rectangle {
-                height: 35px;
-                background: #1e1e1e;
-                HorizontalLayout {
-                    padding-left: 10px;
-                    spacing: 8px;
-                    alignment: start;
-
-                    // Traffic lights vertical center
-                    VerticalLayout {
-                        alignment: center;
-                        HorizontalLayout {
-                            spacing: 8px;
-                            // Red (Close)
-                            Rectangle {
-                                width: 12px;
-                                height: 12px;
-                                border-radius: 6px;
-                                background: #FF5F56;
-                                TouchArea {
-                                    clicked => {
-                                        root.close_window();
-                                    }
-                                }
-                            }
-                            // Yellow (Minimize)
-                            Rectangle {
-                                width: 12px;
-                                height: 12px;
-                                border-radius: 6px;
-                                background: #FFBD2E;
-                                TouchArea {
-                                    clicked => {
-                                        root.minimize_window();
-                                    }
-                                }
-                            }
-                            // Green (Maximize)
-                            Rectangle {
-                                width: 12px;
-                                height: 12px;
-                                border-radius: 6px;
-                                background: #27C93F;
-                                TouchArea {
-                                    clicked => {
-                                        root.maximize_window();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Title Text
-                Text {
-                    text: root.title;
-                    color: #cccccc;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                    width: 100%;
-                    height: 100%;
-                }
-
-                // Drag Logic
+                horizontal-stretch: 1;
+                if AppState.active-tab == 0: Dashboard { }
+                if AppState.active-tab == 1: Produk { }
+                if AppState.active-tab == 2: MasterData { }
+                if AppState.active-tab == 3: Utility { }
+                if AppState.active-tab == 4: LogsTerminal { }
+                if AppState.active-tab == 5: Settings { }
+                
+                // Drag area for window movement
                 TouchArea {
                     z: -1;
                     moved => {
@@ -96,19 +116,31 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-
-            // Main Content Area
-            Rectangle {
-                background: #1e1e1e;
-                VerticalBox {
-                    Text {
-                        text: "Welcome to Custom Dark App";
-                        color: white;
-                        font-size: 20px;
-                        horizontal-alignment: center;
-                    }
-                }
-            }
+        }
+        
+        // ============================================
+        // FOOTER (28px)
+        // ============================================
+        Footer {
+            version: AppState.app-version;
+            current-time: AppState.current-time;
+        }
+    }
+    
+    // Close confirmation dialog overlay
+    ConfirmDialog {
+        open: root.show-close-dialog;
+        title: "Konfirmasi Keluar";
+        message: "Server sedang aktif. Apakah Anda yakin ingin menutup aplikasi? Server akan dihentikan.";
+        confirm-text: "Keluar";
+        cancel-text: "Batal";
+        confirmed => {
+            root.show-close-dialog = false;
+            AppState.server-connected = false;
+            root.close_window();
+        }
+        cancelled => {
+            root.show-close-dialog = false;
         }
     }
 }

@@ -1,0 +1,352 @@
+import { Palette } from "../palette.slint";
+import {
+    CustomTableView,
+    CustomTextInput,
+    CustomButton,
+    OverlaySlidePanel,
+    CustomComboBox,
+} from "../components/widgets.slint";
+import { Button } from "std-widgets.slint";
+import { Icons } from "@lucide";
+import { ProdukState } from "../state.slint";
+
+
+export component Produk inherits Rectangle {
+    property <bool> is-edit-mode: false;
+    private property <int> current-selected-id: -1;
+    
+    // Debounce timer for search
+    private property <duration> search-debounce: 300ms;
+    function reset-form() {
+        ProdukState.edit-product-id = -1;
+        ProdukState.form-provider-index = 0;
+        ProdukState.form-nama-produk = "";
+        ProdukState.form-kode-produk = "";
+        ProdukState.form-kategori-index = 0;
+        ProdukState.form-harga = "";
+        ProdukState.form-addon-index = -1;
+        root.is-edit-mode = false;
+    }
+    function get-selected-provider() -> string {
+        if (ProdukState.form-provider-index == 0) {
+            return "Byu";
+        }
+        if (ProdukState.form-provider-index == 1) {
+            return "Smartfren";
+        }
+        return "Telkomsel";
+    }
+    function get-selected-kategori() -> string {
+        if (ProdukState.form-kategori-index == 0) {
+            return "CEK";
+        }
+        if (ProdukState.form-kategori-index == 1) {
+            return "RDM";
+        }
+        return "FIS";
+    }
+    function get-filter-provider() -> string {
+        if (ProdukState.provider-filter-index == 0) {
+            return "";
+        }
+        if (ProdukState.provider-filter-index == 1) {
+            return "Byu";
+        }
+        if (ProdukState.provider-filter-index == 2) {
+            return "Smartfren";
+        }
+        return "Telkomsel";
+    }
+    function get-filter-kategori() -> string {
+        if (ProdukState.kategori-filter-index == 0) {
+            return "";
+        }
+        if (ProdukState.kategori-filter-index == 1) {
+            return "CEK";
+        }
+        if (ProdukState.kategori-filter-index == 2) {
+            return "RDM";
+        }
+        return "FIS";
+    }
+    function get-selected-addon() -> string {
+        if (ProdukState.form-addon-index < 0 || ProdukState.form-addon-index >= ProdukState.addon-options.length) {
+            return "";
+        }
+        return ProdukState.addon-options[ProdukState.form-addon-index];
+    }
+
+    // Trigger load products and addon options on page init
+    init => {
+        ProdukState.load-products();
+        ProdukState.load-addon-options();
+    }
+
+    VerticalLayout {
+        Rectangle {
+            width: 100%;
+            min-height: 40px;
+            max-height: 50px;
+            HorizontalLayout {
+                spacing: 12px;
+                CustomComboBox {
+                    width: 150px;
+                    height: 32px;
+                    model: ProdukState.providers;
+                    current-index <=> ProdukState.provider-filter-index;
+                    selected(index) => {
+                        ProdukState.search-products(ProdukState.search-query, root.get-filter-provider(), root.get-filter-kategori());
+                    }
+                }
+
+                CustomComboBox {
+                    width: 120px;
+                    height: 32px;
+                    model: ProdukState.kategori-filter-options;
+                    current-index <=> ProdukState.kategori-filter-index;
+                    selected(index) => {
+                        ProdukState.search-products(ProdukState.search-query, root.get-filter-provider(), root.get-filter-kategori());
+                    }
+                }
+
+                search-input := CustomTextInput {
+                    width: 200px;
+                    placeholder: "Cari Produk";
+                    text <=> ProdukState.search-query;
+                    edited(text) => {
+                        // Debounced search - triggers on each edit
+                        ProdukState.search-products(text, root.get-filter-provider(), root.get-filter-kategori());
+                    }
+                }
+
+                CustomButton {
+                    width: 100px;
+                    height: 32px;
+                    text: "Tambah";
+                    show-text: true;
+                    icon: Icons.PlusIcon;
+                    clicked => {
+                        root.reset-form();
+                        ProdukState.form-panel-open = true;
+                    }
+                }
+
+                if table.selected-count == 1: CustomButton {
+                    width: 100px;
+                    height: 32px;
+                    text: "Duplicate";
+                    show-text: true;
+                    icon: Icons.CopyIcon;
+                    clicked => {
+                        // Get selected product ID from current row
+                        if (table.current-row >= 0 && table.current-row < ProdukState.selected-product-ids.length) {
+                            ProdukState.duplicate-product(ProdukState.selected-product-ids[table.current-row]);
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            width: 100%;
+            vertical-stretch: 1;
+            table := CustomTableView {
+                width: 100%;
+                height: 100%;
+                columns: [
+                    { title: "Provider" },
+                    { title: "Nama Produk", width: 250px },
+                    { title: "Kode Produk" },
+                    { title: "Kategori" },
+                    { title: "Harga" },
+                    { title: "Kode Addon" },
+                ];
+                rows: ProdukState.products;
+                context-menu-items: [
+                    {
+                        title: "Edit",
+                        icon: Icons.NotebookPenIcon,
+                        action: "edit",
+                        disabled: table.selected-count != 1
+                    },
+                    { title: "Hapus", icon: Icons.TrashIcon, action: "delete" },
+                ];
+                context-menu-activated(action) => {
+                    if (action == "edit") {
+                        if (table.current-row >= 0 && table.current-row < ProdukState.selected-product-ids.length) {
+                            root.is-edit-mode = true;
+                            ProdukState.load-product-for-edit(ProdukState.selected-product-ids[table.current-row]);
+                            ProdukState.form-panel-open = true;
+                        }
+                    } else if (action == "delete") {
+                        // Collect selected IDs
+                        ProdukState.delete-products(ProdukState.selected-product-ids);
+                    }
+                }
+            }
+        }
+    }
+
+    tambah-produk-panel := OverlaySlidePanel {
+        open: ProdukState.form-panel-open;
+        panel-width: 440px;
+        title: root.is-edit-mode ? "Edit Produk" : "Tambah Produk";
+        close-requested => {
+            ProdukState.form-panel-open = false;
+        }
+
+        GridLayout {
+            spacing: 8px;
+
+            Text {
+                row: 0;
+                col: 0;
+                text: "Provider";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomComboBox {
+                row: 0;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                model: ["Byu", "Smartfren", "Telkomsel"];
+                current-index <=> ProdukState.form-provider-index;
+            }
+
+            Text {
+                row: 1;
+                col: 0;
+                text: "Nama Produk";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 1;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Nama Produk";
+                text <=> ProdukState.form-nama-produk;
+            }
+
+            Text {
+                row: 2;
+                col: 0;
+                text: "Kode Produk";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 2;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Kode Produk (unique)";
+                text <=> ProdukState.form-kode-produk;
+            }
+
+            Text {
+                row: 3;
+                col: 0;
+                text: "Kategori";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomComboBox {
+                row: 3;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                model: ProdukState.kategori-options;
+                current-index <=> ProdukState.form-kategori-index;
+            }
+
+            Text {
+                row: 4;
+                col: 0;
+                text: "Harga";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomTextInput {
+                row: 4;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                placeholder: "Harga";
+                text <=> ProdukState.form-harga;
+                input-type: InputType.number;
+            }
+
+            Text {
+                row: 5;
+                col: 0;
+                text: "Kode Addon";
+                font-size: 12px;
+                min-width: 110px;
+                height: 22px;
+                color: Palette.text_secondary;
+                vertical-alignment: center;
+            }
+
+            CustomComboBox {
+                row: 5;
+                col: 1;
+                width: 280px;
+                height: 32px;
+                model: ProdukState.addon-options;
+                current-index <=> ProdukState.form-addon-index;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button {
+                text: "Batal";
+                height: 32px;
+                clicked => {
+                    ProdukState.form-panel-open = false;
+                }
+            }
+
+            Button {
+                text: "Simpan";
+                height: 32px;
+                clicked => {
+                    // Save product via backend
+                    ProdukState.save-product(
+                        ProdukState.edit-product-id,
+                        root.get-selected-provider(),
+                        ProdukState.form-nama-produk,
+                        ProdukState.form-kode-produk,
+                        root.get-selected-kategori(),
+                        ProdukState.form-harga,
+                        root.get-selected-addon());
+                    ProdukState.form-panel-open = false;
+                }
+            }
+        }
+    }
+}

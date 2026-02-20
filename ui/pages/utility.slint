@@ -1,0 +1,694 @@
+import {
+    CustomTabs,
+    CustomTextInput,
+    CustomComboBox,
+    CustomButton,
+    CustomTextEdit,
+    CustomTableView,
+    CustomCheckBox,
+} from "../components/widgets.slint";
+import { Icons } from "@lucide";
+import { Palette } from "../palette.slint";
+import { HorizontalBox, Spinner } from "std-widgets.slint";
+import { UtilityState } from "../state.slint";
+
+export component Utility inherits VerticalLayout {
+    private property <int> active-tab: 0;
+    CustomTabs {
+        fixed-button-width: true;
+        button-min-width: 200px;
+        tabs: [
+            { title: "Cek Voucher", has-icon: true, icon: Icons.SearchIcon },
+            { title: "Redeem Voucher", has-icon: true, icon: Icons.ArrowRightLeftIcon },
+        ];
+        active-tab <=> root.active-tab;
+        tab-changed(index) => {
+            root.active-tab = index;
+        }
+    }
+
+    Rectangle {
+        vertical-stretch: 1;
+        border-radius: 6px;
+        clip: true;
+
+        // Tab 0: Cek Voucher
+        if root.active-tab == 0: GridLayout {
+            width: 100%;
+            height: 100%;
+            spacing: 6px;
+            
+            // Single Check Section
+            Rectangle {
+                col: 0;
+                row: 0;
+                rowspan: 2;
+                height: 120px;
+                width: 350px;
+                background: Palette.bg_surface_1;
+                VerticalLayout {
+                    HorizontalLayout {
+                        height: 30px;
+                        padding: 6px;
+                        Text {
+                            text: "Single Cek Voucher";
+                            font-weight: 600;
+                            font-size: 14px;
+                            color: Palette.text_secondary;
+                            horizontal-alignment: left;
+                        }
+
+                        if UtilityState.single-checking: Spinner {
+                            width: 20px;
+                            height: 20px;
+                            indeterminate: true;
+                        }
+                    }
+
+                    Rectangle {
+                        width: 350px;
+                        height: 2px;
+                        background: Palette.border;
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            width: 50px;
+                            text: "Barcode";
+                            font-size: 12px;
+                            color: Palette.text_primary;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+
+                        single-barcode-input := CustomTextInput {
+                            height: 25px;
+                            placeholder: "Masukkan Barcode...";
+                            content-padding: 4px;
+                            input-type: number;
+                            text <=> UtilityState.single-barcode;
+                            accepted => {
+                                if (UtilityState.single-barcode != "" && !UtilityState.single-checking) {
+                                    UtilityState.check-voucher-single(UtilityState.single-barcode, UtilityState.single-provider);
+                                }
+                            }
+                        }
+
+                        CustomButton {
+                            width: 50px;
+                            height: 25px;
+                            icon: Icons.SearchIcon;
+                            show-text: false;
+                            enabled: !UtilityState.single-checking && UtilityState.single-barcode != "";
+                            clicked => {
+                                UtilityState.check-voucher-single(UtilityState.single-barcode, UtilityState.single-provider);
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            width: 50px;
+                            text: "Provider";
+                            font-size: 12px;
+                            color: Palette.text_primary;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+
+                        CustomComboBox {
+                            height: 25px;
+                            width: 220px;
+                            model: ["Byu", "Telkomsel"];  // Only providers with check API
+                            current-value <=> UtilityState.single-provider;
+                        }
+                    }
+                }
+            }
+
+            // Information Voucher - Single Check Result
+            Rectangle {
+                col: 0;
+                row: 2;
+                width: 350px;
+                height: parent.height - 120px - 6px;
+                background: Palette.bg_surface_1;
+                VerticalLayout {
+                    alignment: start;
+                    padding: 6px;
+                    spacing: 4px;
+                    Text {
+                        text: "Hasil Cek Voucher";
+                        font-weight: 600;
+                        font-size: 13px;
+                        color: Palette.text_secondary;
+                    }
+
+                    Rectangle {
+                        background: Palette.bg_surface_2;
+                        border-radius: 4px;
+                        border-width: 2px;
+                        border-color: Palette.border;
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 10px;
+                            spacing: 8px;
+                            if UtilityState.single-result-status == "": Text {
+                                text: "Masukkan barcode dan klik search untuk cek voucher";
+                                font-size: 12px;
+                                color: Palette.text_secondary;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            if UtilityState.single-result-status != "": VerticalLayout {
+                                spacing: 6px;
+                                
+                                // Status with color indicator
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Rectangle {
+                                        width: 10px;
+                                        height: 10px;
+                                        border-radius: 5px;
+                                        background: UtilityState.single-result-status == "VALID" || UtilityState.single-result-status == "AVAILABLE" ? #4CAF50 : UtilityState.single-result-status == "USED" ? #FF9800 : UtilityState.single-result-status == "INVALID" ? #F44336 : #9E9E9E;
+                                        y: 3px;
+                                    }
+
+                                    Text {
+                                        text: "Status: " + UtilityState.single-result-status;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                        color: Palette.text_primary;
+                                    }
+                                }
+
+                                if UtilityState.single-result-description != "": HorizontalLayout {
+                                    Text {
+                                        text: "Deskripsi: ";
+                                        font-size: 12px;
+                                        color: Palette.text_secondary;
+                                    }
+
+                                    Text {
+                                        text: UtilityState.single-result-description;
+                                        font-size: 12px;
+                                        color: Palette.text_primary;
+                                        wrap: word-wrap;
+                                        horizontal-alignment: left;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                if UtilityState.single-result-expiry != "": HorizontalLayout {
+                                    Text {
+                                        text: "Expired: ";
+                                        font-size: 12px;
+                                        color: Palette.text_secondary;
+                                    }
+
+                                    Text {
+                                        text: UtilityState.single-result-expiry;
+                                        font-size: 12px;
+                                        color: Palette.text_primary;
+                                        horizontal-alignment: left;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                if UtilityState.single-result-message != "": Rectangle {
+                                    background: Palette.bg_surface_1;
+                                    border-radius: 4px;
+                                    height: 40px;
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        Text {
+                                            text: UtilityState.single-result-message;
+                                            font-size: 11px;
+                                            color: Palette.text_secondary;
+                                            wrap: word-wrap;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bulk Check Header
+            Rectangle {
+                col: 1;
+                colspan: 2;
+                row: 0;
+                height: 75px;
+                width: parent.width - 350px - 6px;
+                background: Palette.bg_surface_1;
+                VerticalLayout {
+                    HorizontalLayout {
+                        height: 30px;
+                        padding: 6px;
+                        Text {
+                            text: "Cek Voucher Bulk";
+                            font-weight: 600;
+                            font-size: 14px;
+                            color: Palette.text_secondary;
+                            horizontal-alignment: left;
+                        }
+
+                        if UtilityState.bulk-checking: Spinner {
+                            width: 20px;
+                            height: 20px;
+                            indeterminate: true;
+                        }
+                    }
+
+                    Rectangle {
+                        height: 2px;
+                        background: Palette.border;
+                    }
+
+                    HorizontalBox {
+                        Text {
+                            width: 50px;
+                            text: "Provider";
+                            font-size: 12px;
+                            color: Palette.text_primary;
+                            horizontal-alignment: left;
+                            vertical-alignment: center;
+                        }
+
+                        CustomComboBox {
+                            height: 25px;
+                            width: 220px;
+                            model: ["Byu", "Telkomsel"];  // Only providers with check API
+                            current-value <=> UtilityState.bulk-provider;
+                        }
+
+                        CustomButton {
+                            width: 80px;
+                            height: 25px;
+                            icon: Icons.SearchIcon;
+                            text: "Cek";
+                            show-text: true;
+                            enabled: !UtilityState.bulk-checking && UtilityState.bulk-barcodes != "";
+                            clicked => {
+                                UtilityState.check-voucher-bulk(UtilityState.bulk-barcodes, UtilityState.bulk-provider);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Bulk Input TextEdit
+            Rectangle {
+                col: 1;
+                row: 1;
+                rowspan: 2;
+                min-width: 250px;
+                max-width: 280px;
+                background: Palette.bg_surface_1;
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: 6px;
+                    CustomTextEdit {
+                        input-type: number;
+                        placeholder-text: "Masukkan Barcode Voucher\n(satu per baris)";
+                        text <=> UtilityState.bulk-barcodes;
+                    }
+                }
+            }
+
+            // Bulk Results Table
+            table := CustomTableView {
+                col: 2;
+                row: 1;
+                rowspan: 2;
+                vertical-stretch: 1;
+                horizontal-stretch: 1;
+                columns: [
+                    { title: "Barcode" },
+                    { title: "Status", width: 100px },
+                    { title: "Description" },
+                ];
+                rows: UtilityState.bulk-results;
+            }
+        }
+        
+        // Tab 1: Redeem Voucher
+        if root.active-tab == 1: Rectangle {
+            width: 100%;
+            height: 100%;
+            background: Palette.bg_surface_1;
+            Rectangle {
+                y: 0;
+                width: 100%;
+                height: 50px;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 2px;
+                            width: 20%;
+                            background: Palette.text_secondary;
+                        }
+                    }
+
+                    Text {
+                        text: "Redeem Voucher Manually";
+                        font-weight: 600;
+                        font-size: 30px;
+                        color: Palette.text_secondary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            height: 2px;
+                            width: 20%;
+                            background: Palette.text_secondary;
+                        }
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    GridLayout {
+                        width: 550px;
+                        preferred-height: 300px;
+                        max-height: 550px;
+                        spacing: 10px;
+                        
+                        // Provider Selection
+                        HorizontalLayout {
+                            alignment: space-between;
+                            col: 0;
+                            row: 0;
+                            colspan: 3;
+                            HorizontalBox {
+                                alignment: center;
+                                CustomCheckBox {
+                                    manual-toggle: true;
+                                    border-radius: self.size / 2;
+                                    indicator-border-radius: self.size / 2;
+                                    checked: UtilityState.redeem-provider == "Byu";
+                                    size: 15px;
+                                    toggled => {
+                                        UtilityState.redeem-provider = "Byu";
+                                    }
+                                }
+
+                                byu-touch := TouchArea {
+                                    clicked => {
+                                        UtilityState.redeem-provider = "Byu";
+                                    }
+                                    VerticalLayout {
+                                        alignment: start;
+                                        spacing: 1px;
+                                        byu-text := Text {
+                                            text: "Byu";
+                                            font-size: 14px;
+                                            font-weight: 500;
+                                            color: Palette.text_primary;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Rectangle {
+                                            height: 1.5px;
+                                            width: byu-text.preferred-width;
+                                            background: Palette.text_primary;
+                                            opacity: byu-touch.has-hover ? 1 : 0;
+                                            animate opacity {
+                                                duration: 200ms;
+                                                easing: ease-in-out;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalBox {
+                                alignment: center;
+                                CustomCheckBox {
+                                    manual-toggle: true;
+                                    border-radius: self.size / 2;
+                                    indicator-border-radius: self.size / 2;
+                                    checked: UtilityState.redeem-provider == "Smartfren";
+                                    size: 15px;
+                                    toggled => {
+                                        UtilityState.redeem-provider = "Smartfren";
+                                    }
+                                }
+
+                                smartfren-touch := TouchArea {
+                                    clicked => {
+                                        UtilityState.redeem-provider = "Smartfren";
+                                    }
+                                    VerticalLayout {
+                                        alignment: start;
+                                        spacing: 1px;
+                                        smartfren-text := Text {
+                                            text: "Smartfren";
+                                            font-size: 14px;
+                                            font-weight: 500;
+                                            color: Palette.text_primary;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Rectangle {
+                                            height: 1.5px;
+                                            width: smartfren-text.preferred-width;
+                                            background: Palette.text_primary;
+                                            opacity: smartfren-touch.has-hover ? 1 : 0;
+                                            animate opacity {
+                                                duration: 200ms;
+                                                easing: ease-in-out;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            HorizontalBox {
+                                alignment: center;
+                                CustomCheckBox {
+                                    manual-toggle: true;
+                                    border-radius: self.size / 2;
+                                    indicator-border-radius: self.size / 2;
+                                    checked: UtilityState.redeem-provider == "Telkomsel";
+                                    size: 15px;
+                                    toggled => {
+                                        UtilityState.redeem-provider = "Telkomsel";
+                                    }
+                                }
+
+                                telkomsel-touch := TouchArea {
+                                    clicked => {
+                                        UtilityState.redeem-provider = "Telkomsel";
+                                    }
+                                    VerticalLayout {
+                                        alignment: start;
+                                        spacing: 1px;
+                                        telkomsel-text := Text {
+                                            text: "Telkomsel";
+                                            font-size: 14px;
+                                            font-weight: 500;
+                                            color: Palette.text_primary;
+                                            vertical-alignment: center;
+                                        }
+
+                                        Rectangle {
+                                            height: 1.5px;
+                                            width: telkomsel-text.preferred-width;
+                                            background: Palette.text_primary;
+                                            opacity: telkomsel-touch.has-hover ? 1 : 0;
+                                            animate opacity {
+                                                duration: 200ms;
+                                                easing: ease-in-out;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            col: 0;
+                            row: 1;
+                            height: 35px;
+                            text: "Nomor Tujuan";
+                            font-size: 15px;
+                            font-weight: 520;
+                            color: Palette.text_secondary;
+                            vertical-alignment: bottom;
+                        }
+
+                        CustomTextInput {
+                            col: 0;
+                            row: 2;
+                            colspan: 3;
+                            height: 40px;
+                            placeholder: "Masukkan Nomor Tujuan";
+                            input-type: number;
+                            font-size: 14px;
+                            text <=> UtilityState.redeem-msisdn;
+                        }
+
+                        Text {
+                            col: 0;
+                            row: 3;
+                            height: 35px;
+                            text: "Kode Voucher";
+                            font-size: 15px;
+                            font-weight: 520;
+                            color: Palette.text_secondary;
+                            vertical-alignment: bottom;
+                        }
+
+                        CustomTextInput {
+                            col: 0;
+                            row: 4;
+                            colspan: 3;
+                            height: 40px;
+                            placeholder: "Masukkan Kode Voucher";
+                            input-type: number;
+                            font-size: 14px;
+                            text <=> UtilityState.redeem-voucher-code;
+                        }
+
+                        CustomButton {
+                            col: 0;
+                            row: 5;
+                            colspan: 3;
+                            height: 40px;
+                            width: 100%;
+                            text: UtilityState.redeem-processing ? "Processing..." : "Redeem";
+                            icon: Icons.ArrowRightIcon;
+                            show-text: true;
+                            enabled: !UtilityState.redeem-processing && UtilityState.redeem-msisdn != "" && UtilityState.redeem-voucher-code != "";
+                            clicked => {
+                                UtilityState.redeem-voucher(
+                                    UtilityState.redeem-provider,
+                                    UtilityState.redeem-msisdn,
+                                    UtilityState.redeem-voucher-code);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Redeem Result Dialog Overlay
+            if UtilityState.redeem-dialog-open: Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000080;
+                z: 100;
+                TouchArea {
+                    clicked => {
+                        UtilityState.close-redeem-dialog();
+                    }
+                }
+
+                Rectangle {
+                    width: 380px;
+                    height: 240px;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    background: Palette.bg_surface_1;
+                    border-radius: 12px;
+                    clip: true;
+                    drop-shadow-blur: 16px;
+                    drop-shadow-color: #00000060;
+                    TouchArea {
+                        // Prevent click through
+                    }
+
+                    VerticalLayout {
+                        padding-top: 16px;
+                        padding-bottom: 16px;
+                        padding-left: 24px;
+                        padding-right: 24px;
+                        spacing: 16px;
+                        Text {
+                            text: "Informasi Redeem";
+                            font-size: 16px;
+                            font-weight: 600;
+                            color: Palette.text;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.border;
+                        }
+
+                        VerticalLayout {
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Status:";
+                                    font-size: 12px;
+                                    color: Palette.text_secondary;
+                                    min-width: 80px;
+                                }
+
+                                Text {
+                                    text: UtilityState.redeem-result-success ? "Berhasil" : "Gagal";
+                                    font-size: 12px;
+                                    color: UtilityState.redeem-result-success ? Palette.success : Palette.error;
+                                    horizontal-alignment: left;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "Pesan:";
+                                    font-size: 12px;
+                                    color: Palette.text_secondary;
+                                    width: 80px;
+                                }
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    min-width: 0px;
+                                    height: 42px;
+                                    clip: true;
+                                    Text {
+                                        width: parent.width;
+                                        text: UtilityState.redeem-result-message;
+                                        font-size: 12px;
+                                        color: Palette.text;
+                                        wrap: word-wrap;
+                                        overflow: elide;
+                                        horizontal-alignment: left;
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                        }
+
+                        CustomButton {
+                            text: self.has-hover ? "Tutup" : "Menutup dalam " + UtilityState.redeem-dialog-countdown + " detik";
+                            height: 32px;
+                            horizontal-stretch: 1;
+                            clicked => {
+                                UtilityState.close-redeem-dialog();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

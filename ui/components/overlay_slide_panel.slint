@@ -1,0 +1,125 @@
+import { Palette, StyleMetrics, Button, ScrollView } from "std-widgets.slint";
+import { Palette as Palette2 } from "../palette.slint";
+// Overlay drawer with scrim and slide animation.
+export component OverlaySlidePanel inherits Rectangle {
+    in property <bool> open: false;
+    in property <length> panel-width: 420px;
+    in property <float> scrim-opacity: 0.32;
+    in property <string> title: "";
+    in property <bool> close-on-outside-click: true;
+    in property <bool> block-background-interaction: true;
+    in property <bool> close-on-escape: true;
+    in property <bool> show-close-button: true;
+    callback close-requested();
+    callback opened();
+    callback closed();
+    width: 100%;
+    height: 100%;
+    z: 200;
+    property <float> p: root.open ? 1 : 0;
+    animate p {
+        duration: 220ms;
+        easing: ease-in-out;
+    }
+    visible: root.p > 0.001;
+    changed open => {
+        if (root.open) {
+            root.focus();
+            root.opened();
+        } else {
+            root.closed();
+        }
+    }
+
+    // Scrim layer for background dim and click handling.
+    scrim := Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000;
+        opacity: root.p * root.scrim-opacity;
+        touch-area := TouchArea {
+            enabled: root.block-background-interaction;
+            clicked => {
+                if (root.close-on-outside-click) {
+                    root.close-requested();
+                }
+            }
+        }
+    }
+
+    // Sliding panel.
+    panel := Rectangle {
+        width: root.panel-width;
+        height: parent.height;
+        x: parent.width - (root.panel-width * root.p);
+        background: Palette2.bg_surface_1;
+        border-width: 1px;
+        border-color: Palette.border;
+        border-radius: max(4px, StyleMetrics.layout-padding / 2);
+        drop-shadow-blur: StyleMetrics.layout-padding * 2;
+        drop-shadow-offset-x: -4px;
+        drop-shadow-offset-y: 0px;
+        drop-shadow-color: StyleMetrics.window-background.with-alpha(0.6);
+        clip: true;
+
+        // Block clicks from reaching scrim
+        TouchArea {
+            width: 100%;
+            height: 100%;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            padding: StyleMetrics.layout-padding;
+            spacing: StyleMetrics.layout-spacing;
+            header := HorizontalLayout {
+                height: 36px;
+                alignment: space-between;
+                Text {
+                    text: root.title;
+                    color: Palette.foreground;
+                    font-size: 14px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+
+                if root.show-close-button: Button {
+                    text: "X";
+                    clicked => {
+                        root.close-requested();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Palette.border;
+            }
+
+            scroll := ScrollView {
+                vertical-stretch: 1;
+                content := VerticalLayout {
+                    width: parent.width;
+                    spacing: StyleMetrics.layout-spacing;
+                    @children
+                }
+            }
+        }
+    }
+
+    esc-scope := FocusScope {
+        width: 0px;
+        height: 0px;
+        enabled: root.open && root.close-on-escape;
+        key-pressed(event) => {
+            if (root.open && root.close-on-escape && event.text == Key.Escape) {
+                root.close-requested();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    forward-focus: esc-scope;
+}

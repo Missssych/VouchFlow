@@ -1,0 +1,937 @@
+import { Palette } from "../palette.slint";
+import {
+    CustomButton,
+    CustomTableView,
+    CustomTextInput,
+    CustomComboBox,
+    DatePickerPopup,
+    OverlaySlidePanel,
+    Switch,
+} from "../components/widgets.slint";
+import { Button } from "std-widgets.slint";
+import { Icons } from "@lucide";
+import { DashboardState, StokState } from "../state.slint";
+export component Dashboard inherits Rectangle {
+    property <string> context_action: "";
+    property <bool> stok-button: false;
+    function pad2(value: int) -> string {
+        if (value < 10) {
+            return "0" + value;
+        }
+        return "" + value;
+    }
+    function format-date-iso(year: int, month: int, day: int) -> string {
+        return "" + year + "-" + root.pad2(month) + "-" + root.pad2(day);
+    }
+    function today-iso() -> string {
+        return root.format-date-iso(DashboardState.current-year, DashboardState.current-month, DashboardState.current-day);
+    }
+    function selected-status() -> string {
+        if (DashboardState.status-filter-index >= 0 && DashboardState.status-filter-index < DashboardState.status-options.length) {
+            return DashboardState.status-options[DashboardState.status-filter-index];
+        }
+        return "Semua";
+    }
+    function selected-provider() -> string {
+        if (DashboardState.provider-filter-index >= 0 && DashboardState.provider-filter-index < DashboardState.provider-options.length) {
+            return DashboardState.provider-options[DashboardState.provider-filter-index];
+        }
+        return "Semua";
+    }
+    function selected-kategori() -> string {
+        if (DashboardState.kategori-filter-index >= 0 && DashboardState.kategori-filter-index < DashboardState.kategori-options.length) {
+            return DashboardState.kategori-options[DashboardState.kategori-filter-index];
+        }
+        return "Semua";
+    }
+    function apply-filters() {
+        DashboardState.filter-transactions(
+            root.selected-status(),
+            root.selected-provider(),
+            root.selected-kategori(),
+            DashboardState.date-from,
+            DashboardState.date-to,
+            DashboardState.limit-index,
+            DashboardState.search-query);
+    }
+    function reset-filters() {
+        DashboardState.search-query = "";
+        DashboardState.status-filter-index = 0;
+        DashboardState.provider-filter-index = 0;
+        DashboardState.kategori-filter-index = 0;
+        DashboardState.limit-index = 0;
+        DashboardState.date-from = root.today-iso();
+        DashboardState.date-to = root.today-iso();
+        start-date-field.selected-year = DashboardState.current-year;
+        start-date-field.selected-month = DashboardState.current-month;
+        start-date-field.selected-day = DashboardState.current-day;
+        end-date-field.selected-year = DashboardState.current-year;
+        end-date-field.selected-month = DashboardState.current-month;
+        end-date-field.selected-day = DashboardState.current-day;
+    }
+    
+    // Initialize on visibility
+    init => {
+        DashboardState.load-transactions();
+    }
+    VerticalLayout {
+        spacing: 6px;
+        //Filter content
+        HorizontalLayout {
+            spacing: 6px;
+            height: 100px;
+            width: 100%;
+            Rectangle {
+                background: Palette.bg_surface_1;
+                width: 70%;
+                border-radius: 6px;
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    //search component
+                    HorizontalLayout {
+                        alignment: center;
+                        search-input := CustomTextInput {
+                            height: 30px;
+                            width: 50%;
+                            placeholder: "Cari idtrx, nomor, produk, atau SN";
+                            icon: Icons.SearchIcon;
+                            show-delete: true;
+                            border-radius: 6px;
+                            text <=> DashboardState.search-query;
+                            enabled: !DashboardState.auto-refresh;
+                            edited(text) => {
+                                if (!DashboardState.auto-refresh) {
+                                    root.apply-filters();
+                                }
+                            }
+                            cleared() => {
+                                if (!DashboardState.auto-refresh) {
+                                    root.apply-filters();
+                                }
+                            }
+                        }
+                    }
+
+                    GridLayout {
+                        spacing: 6px;
+                        //Label
+                        Text {
+                            row: 0;
+                            col: 0;
+                            text: "Tanggal";
+                            font-size: 12px;
+                            preferred-width: 60px;
+                            max-width: 70px;
+                            height: 22px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            row: 1;
+                            col: 0;
+                            text: "Status";
+                            font-size: 12px;
+                            preferred-width: 60px;
+                            max-width: 70px;
+                            height: 22px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            row: 0;
+                            col: 2;
+                            text: "Provider";
+                            font-size: 12px;
+                            preferred-width: 60px;
+                            max-width: 70px;
+                            height: 22px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            row: 1;
+                            col: 2;
+                            text: "Kategori";
+                            font-size: 12px;
+                            preferred-width: 60px;
+                            max-width: 70px;
+                            height: 22px;
+                            vertical-alignment: center;
+                        }
+                        
+                        //Filter Component
+                        HorizontalLayout {
+                            row: 0;
+                            col: 1;
+                            min-width: 120px;
+                            max-width: 300px;
+                            height: 22px;
+                            spacing: 6px;
+                            // Start Date Picker
+                            start-date-field := Rectangle {
+                                min-width: 60px;
+                                preferred-width: 80px;
+                                max-width: 85px;
+                                background: Palette.bg_surface_1;
+                                border-color: Palette.bg;
+                                border-width: 1px;
+                                property <int> selected-year: DashboardState.current-year;
+                                property <int> selected-month: DashboardState.current-month;
+                                property <int> selected-day: DashboardState.current-day;
+                                Text {
+                                    text: parent.selected-day + "/" + parent.selected-month + "/" + parent.selected-year;
+                                    font-size: 11px;
+                                    color: auto-refresh-switch.checked ? Palette.text_secondary : Palette.text;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    enabled: !auto-refresh-switch.checked;
+                                    clicked => {
+                                        start-date-popup.show();
+                                    }
+                                }
+
+                                start-date-popup := DatePickerPopup {
+                                    date: { year: parent.selected-year, month: parent.selected-month, day: parent.selected-day };
+                                    accepted(date) => {
+                                        parent.selected-year = date.year;
+                                        parent.selected-month = date.month;
+                                        parent.selected-day = date.day;
+                                        DashboardState.date-from = root.format-date-iso(date.year, date.month, date.day);
+                                        if (!DashboardState.auto-refresh) {
+                                            root.apply-filters();
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                width: 20px;
+                                text: "s/d";
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+
+                            // End Date Picker
+                            end-date-field := Rectangle {
+                                min-width: 60px;
+                                preferred-width: 70px;
+                                max-width: 85px;
+                                background: Palette.bg_surface_1;
+                                border-color: Palette.bg;
+                                border-width: 1px;
+                                property <int> selected-year: DashboardState.current-year;
+                                property <int> selected-month: DashboardState.current-month;
+                                property <int> selected-day: DashboardState.current-day;
+                                Text {
+                                    text: parent.selected-day + "/" + parent.selected-month + "/" + parent.selected-year;
+                                    font-size: 11px;
+                                    color: auto-refresh-switch.checked ? Palette.text_secondary : Palette.text;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    enabled: !auto-refresh-switch.checked;
+                                    clicked => {
+                                        end-date-popup.show();
+                                    }
+                                }
+
+                                end-date-popup := DatePickerPopup {
+                                    date: { year: parent.selected-year, month: parent.selected-month, day: parent.selected-day };
+                                    accepted(date) => {
+                                        parent.selected-year = date.year;
+                                        parent.selected-month = date.month;
+                                        parent.selected-day = date.day;
+                                        DashboardState.date-to = root.format-date-iso(date.year, date.month, date.day);
+                                        if (!DashboardState.auto-refresh) {
+                                            root.apply-filters();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            row: 1;
+                            col: 1;
+                            min-width: 120px;
+                            max-width: 300px;
+                            height: 22px;
+                            CustomComboBox {
+                                min-width: 120px;
+                                preferred-width: 140px;
+                                max-width: 200px;
+                                height: 22px;
+                                model: DashboardState.status-options;
+                                current-index <=> DashboardState.status-filter-index;
+                                enabled: !DashboardState.auto-refresh;
+                                selected(value) => {
+                                    if (!DashboardState.auto-refresh) {
+                                        root.apply-filters();
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            row: 0;
+                            col: 3;
+                            min-width: 120px;
+                            max-width: 300px;
+                            height: 22px;
+                            CustomComboBox {
+                                min-width: 120px;
+                                preferred-width: 140px;
+                                max-width: 200px;
+                                height: 22px;
+                                model: DashboardState.provider-options;
+                                current-index <=> DashboardState.provider-filter-index;
+                                enabled: !DashboardState.auto-refresh;
+                                selected(value) => {
+                                    if (!DashboardState.auto-refresh) {
+                                        root.apply-filters();
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            row: 1;
+                            col: 3;
+                            min-width: 120px;
+                            max-width: 300px;
+                            height: 22px;
+                            CustomComboBox {
+                                min-width: 120px;
+                                preferred-width: 140px;
+                                max-width: 200px;
+                                height: 22px;
+                                model: DashboardState.kategori-options;
+                                current-index <=> DashboardState.kategori-filter-index;
+                                enabled: !DashboardState.auto-refresh;
+                                selected(value) => {
+                                    if (!DashboardState.auto-refresh) {
+                                        root.apply-filters();
+                                    }
+                                }
+                            }
+                        }
+
+                        auto-refresh-switch := Switch {
+                            row: 0;
+                            col: 4;
+                            preferred-width: 100px;
+                            max-width: 200px;
+                            height: 22px;
+                            text: "Auto Refresh";
+                            checked <=> DashboardState.auto-refresh;
+                            toggled => {
+                                if (DashboardState.auto-refresh) {
+                                    root.reset-filters();
+                                    DashboardState.load-transactions();
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            row: 1;
+                            col: 4;
+                            preferred-width: 100px;
+                            max-width: 200px;
+                            height: 22px;
+                            spacing: 6px;
+                            limit-combo := CustomComboBox {
+                                model: ["100", "200", "300", "500", "All"];
+                                current-index <=> DashboardState.limit-index;
+                                min-width: 70px;
+                                max-width: 80px;
+                                enabled: !DashboardState.auto-refresh;
+                                selected(value) => {
+                                    if (!DashboardState.auto-refresh) {
+                                        root.apply-filters();
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Limit Data";
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                background: Palette.bg_surface_1;
+                border-radius: 6px;
+                horizontal-stretch: 1;
+                GridLayout {
+                    padding: 8px;
+                    spacing: 6px;
+                    
+                    //Label
+                    Text {
+                        row: 0;
+                        col: 0;
+                        text: "Total Transaction";
+                        font-size: 12px;
+                        width: 100px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        row: 1;
+                        col: 0;
+                        text: "Success";
+                        font-size: 12px;
+                        width: 100px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        row: 2;
+                        col: 0;
+                        text: "Pending";
+                        font-size: 12px;
+                        width: 100px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        row: 3;
+                        col: 0;
+                        text: "Failed";
+                        font-size: 12px;
+                        width: 100px;
+                        vertical-alignment: center;
+                    }
+
+                    //Value
+                    Rectangle {
+                        row: 0;
+                        col: 1;
+                        border-color: Palette.bg;
+                        border-width: 1px;
+                        width: 60px;
+                        Text {
+                            width: 50px;
+                            text: DashboardState.total-transactions;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+
+                    Rectangle {
+                        row: 1;
+                        col: 1;
+                        border-color: Palette.bg;
+                        border-width: 1px;
+                        width: 60px;
+                        Text {
+                            width: 50px;
+                            text: DashboardState.success-count;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+
+                    Rectangle {
+                        row: 2;
+                        col: 1;
+                        border-color: Palette.bg;
+                        border-width: 1px;
+                        width: 60px;
+                        Text {
+                            width: 50px;
+                            text: DashboardState.pending-count;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+
+                    Rectangle {
+                        row: 3;
+                        col: 1;
+                        border-color: Palette.bg;
+                        border-width: 1px;
+                        width: 60px;
+                        Text {
+                            width: 50px;
+                            text: DashboardState.failed-count;
+                            font-size: 10px;
+                            vertical-alignment: center;
+                            horizontal-alignment: right;
+                        }
+                    }
+
+                    VerticalLayout {
+                        col: 2;
+                        row: 0;
+                        rowspan: 4;
+                        alignment: center;
+                        HorizontalLayout {
+                            alignment: center;
+                            CustomButton {
+                                text: "Stok";
+                                icon: Icons.PackageSearchIcon;
+                                height: 30px;
+                                width: 80px;
+                                border-radius: 6px;
+                                show-text: true;
+                                clicked => {
+                                    slide-panel.open = true;
+                                    stok-button = true;
+                                    StokState.load-stock-summary();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //Tabel Content
+        Rectangle {
+            width: 100%;
+            vertical-stretch: 1;
+            table := CustomTableView {
+                width: 100%;
+                height: 100%;
+                columns: [
+                    { title: "Idtrx", width: 80px },
+                    { title: "Provider", width: 90px },
+                    { title: "Nomor" },
+                    { title: "Produk", width: 90px },
+                    { title: "Kategori" },
+                    { title: "Harga", width: 90px },
+                    { title: "SN" },
+                    { title: "Status", width: 90px },
+                    { title: "Waktu trx" },
+                ];
+                rows: DashboardState.transactions;
+                rows-font-size: 11px;
+                context-menu-items: [
+                    {
+                        title: "Cek Voucher",
+                        action: "cek-voucher",
+                        icon: Icons.SearchIcon,
+                        disabled: table.selected-count != 1 || table.current-row < 0 || DashboardState.transactions[table.current-row][1].text == "Smartfren"
+                    },
+                    { title: "Sukseskan transaksi", action: "sukseskan", icon: Icons.FileCheckIcon },
+                    { title: "Ulangi transaksi", action: "ulangi", icon: Icons.FileSymlinkIcon },
+                    { title: "Gagalkan transaksi", action: "gagalkan", icon: Icons.FileXIcon },
+                    { title: "Detail", action: "detail", icon: Icons.FileSearchIcon },
+                ];
+                context-menu-enabled: !DashboardState.auto-refresh;
+                context-menu-activated(action) => {
+                    if (table.current-row >= 0 && DashboardState.transaction-ids.length > table.current-row) {
+                        if (action == "detail") {
+                            DashboardState.get-transaction-detail(DashboardState.transaction-ids[table.current-row]);
+                            slide-panel.open = true;
+                            stok-button = false;
+                        } else if (action == "cek-voucher") {
+                            DashboardState.check-voucher(DashboardState.transaction-ids[table.current-row]);
+                        } else if (action == "sukseskan") {
+                            DashboardState.mark-success(DashboardState.transaction-ids[table.current-row]);
+                        } else if (action == "gagalkan") {
+                            DashboardState.mark-failed(DashboardState.transaction-ids[table.current-row]);
+                        } else if (action == "ulangi") {
+                            DashboardState.retry-transaction(DashboardState.transaction-ids[table.current-row]);
+                        }
+                    }
+                    context_action = action;
+                }
+            }
+        }
+    }
+
+    slide-panel := OverlaySlidePanel {
+        open: false;
+        panel-width: 440px;
+        title: stok-button ? "Jumlah Kode Stok Voucher" : "Detail Transaksi";
+        close-requested => {
+            slide-panel.open = false;
+        }
+        
+        // Transaction Info Section
+        if stok-button == false: VerticalLayout {
+            padding: 12px;
+            spacing: 12px;
+            
+            // Info Box
+            Rectangle {
+                background: Palette.bg_surface_1;
+                border-radius: 6px;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 4px;
+                    Text {
+                        text: "INFORMASI TRANSAKSI";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Palette.text_secondary;
+                    }
+
+                    GridLayout {
+                        spacing: 4px;
+                        Text {
+                            row: 0;
+                            col: 0;
+                            text: "ID Transaksi";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 0;
+                            col: 1;
+                            text: ": " + DashboardState.detail-tx-id;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 1;
+                            col: 0;
+                            text: "Request ID";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 1;
+                            col: 1;
+                            text: ": " + DashboardState.detail-request-id;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 2;
+                            col: 0;
+                            text: "Status";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 2;
+                            col: 1;
+                            text: ": " + DashboardState.detail-status;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 3;
+                            col: 0;
+                            text: "Provider";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 3;
+                            col: 1;
+                            text: ": " + DashboardState.detail-provider;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 4;
+                            col: 0;
+                            text: "Produk";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 4;
+                            col: 1;
+                            text: ": " + DashboardState.detail-produk;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 5;
+                            col: 0;
+                            text: "Nomor";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 5;
+                            col: 1;
+                            text: ": " + DashboardState.detail-nomor;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 6;
+                            col: 0;
+                            text: "Kategori";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 6;
+                            col: 1;
+                            text: ": " + DashboardState.detail-kategori;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            row: 7;
+                            col: 0;
+                            text: "Waktu";
+                            font-size: 11px;
+                            color: Palette.text_secondary;
+                        }
+
+                        Text {
+                            row: 7;
+                            col: 1;
+                            text: ": " + DashboardState.detail-waktu;
+                            font-size: 11px;
+                        }
+                    }
+                }
+            }
+            
+            // Flow Log Section
+            Rectangle {
+                background: Palette.bg_surface_1;
+                border-radius: 6px;
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 4px;
+                    Text {
+                        text: "📋 FLOW LOG";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Palette.text_secondary;
+                    }
+
+                    Rectangle {
+                        background: Palette.bg;
+                        border-radius: 4px;
+                        vertical-stretch: 1;
+                        Flickable {
+                            viewport-height: flow-logs-layout.preferred-height;
+                            flow-logs-layout := VerticalLayout {
+                                padding: 8px;
+                                spacing: 2px;
+                                for log in DashboardState.detail-flow-logs: Text {
+                                    text: log[0].text;
+                                    font-size: 10px;
+                                    font-family: "Consolas";
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Result Payload Section
+            Rectangle {
+                background: Palette.bg_surface_1;
+                border-radius: 6px;
+                height: 120px;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 4px;
+                    Text {
+                        text: "📦 PROVIDER RESPONSE";
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: Palette.text_secondary;
+                    }
+
+                    Rectangle {
+                        background: Palette.bg;
+                        border-radius: 4px;
+                        vertical-stretch: 1;
+                        Flickable {
+                            viewport-height: payload-text.preferred-height + 16px;
+                            VerticalLayout {
+                                padding: 8px;
+                                payload-text := Text {
+                                    text: DashboardState.detail-result-payload;
+                                    font-size: 10px;
+                                    font-family: "Consolas";
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if stok-button == true: VerticalLayout {
+            alignment: start;
+            spacing: 8px;
+            Text {
+                text: "Ringkasan jumlah voucher per kode addon.";
+                font-size: 12px;
+                color: Palette.text_secondary;
+            }
+
+            CustomTableView {
+                width: 100%;
+                height: 300px;
+                show-selection-column: false;
+                columns: [
+                    { title: "Kode Addon" },
+                    { title: "Jumlah" },
+                ];
+                rows: StokState.stock-summary;
+            }
+        }
+    }
+    
+    // Voucher Info Dialog (auto-close + click to close)
+    if DashboardState.voucher-dialog-visible: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+        z: 100;
+        TouchArea {
+            clicked => {
+                DashboardState.voucher-dialog-visible = false;
+            }
+        }
+
+        Rectangle {
+            width: 360px;
+            height: 280px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.bg_surface_1;
+            border-radius: 12px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            TouchArea {
+                // Prevent click through
+            }
+
+            VerticalLayout {
+                padding-top: 16px;
+                padding-bottom: 16px;
+                padding-left: 24px;
+                padding-right: 24px;
+                spacing: 16px;
+                Text {
+                    text: "Hasil Cek Voucher";
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Palette.text;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Palette.border;
+                }
+
+                VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Provider:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: DashboardState.voucher-provider;
+                            font-size: 12px;
+                            color: Palette.text;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Barcode:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: DashboardState.voucher-barcode;
+                            font-size: 12px;
+                            color: Palette.text;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Expired:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: DashboardState.voucher-expired;
+                            font-size: 12px;
+                            color: Palette.text;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+                        Text {
+                            text: "Status:";
+                            font-size: 12px;
+                            color: Palette.text_secondary;
+                            min-width: 80px;
+                        }
+
+                        Text {
+                            text: DashboardState.voucher-status;
+                            font-size: 12px;
+                            color: DashboardState.voucher-status == "SUCCESS" || DashboardState.voucher-status == "VALID" || DashboardState.voucher-status == "AVAILABLE" ? Palette.success : Palette.error;
+                            horizontal-alignment: left;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                CustomButton {
+                    text: self.has-hover ? "Tutup" : "Menutup dalam " + DashboardState.voucher-dialog-countdown + " detik";
+                    height: 32px;
+                    horizontal-stretch: 1;
+                    clicked => {
+                        DashboardState.voucher-dialog-visible = false;
+                    }
+                }
+            }
+        }
+    }
+}

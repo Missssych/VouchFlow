@@ -1,0 +1,53 @@
+// Custom Checkbox Component
+// Based on table selection checkbox with modified styling
+
+import { Palette } from "../palette.slint";
+
+export component CustomCheckBox inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <bool> manual-toggle: false;
+    in property <length> size: 14px;
+    in property <length> indicator-border-radius: 2px;
+    out property <bool> has-hover: touch-area.has-hover;
+    callback toggled;
+    width: root.size;
+    height: root.size;
+    border-radius: 3px;
+    background: root.checked ? Palette.accent : #3d3d3d8f;
+    border-width: 2px;
+    border-color: root.checked ? Palette.accent : Palette.border;
+    opacity: root.enabled ? 1 : 0.6;
+    animate background, border-color {
+        duration: 120ms;
+        easing: ease;
+    }
+    states [
+        hovered when root.enabled && root.has-hover: {
+            root.background: root.checked ? Palette.ancent-hover : Palette.bg_surface_hover;
+            root.border-color: root.checked ? Palette.ancent-hover : Palette.border;
+        }
+    ]
+
+    // Check indicator
+    if root.checked: Rectangle {
+        width: max(2px, parent.width - 6px);
+        height: max(2px, parent.height - 6px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        background: Palette.bg;
+        border-radius: root.indicator-border-radius;
+    }
+    touch-area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            if (root.manual-toggle) {
+                root.toggled();
+            } else {
+                root.checked = !root.checked;
+                root.toggled();
+            }
+        }
+    }
+}

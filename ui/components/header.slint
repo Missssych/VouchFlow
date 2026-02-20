@@ -1,0 +1,124 @@
+import { Palette } from "../palette.slint";
+
+// Pulse animation component for server status
+component PulseDot inherits Rectangle {
+    in property <bool> is-connected: true;
+    in property <color> dot-color: is-connected ? #27C93F : #FF5F56;
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: dot-color;
+}
+
+// Traffic light button component
+component TrafficButton inherits Rectangle {
+    in property <color> button-color;
+    in property <bool> is-hovered: touch.has-hover;
+    callback clicked();
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    background: button-color;
+    opacity: is-hovered ? 1.0 : 0.9;
+    animate opacity {
+        duration: 150ms;
+        easing: ease;
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component Header inherits Rectangle {
+    in property <bool> is-connected: true;
+    in property <string> status-text: is-connected ? "Connected" : "Disconnected";
+    callback close-window();
+    callback minimize-window();
+    callback maximize-window();
+    callback move-window();
+    height: 34px;
+    background: transparent;
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 0px;
+        
+        // LEFT: Traffic lights
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 8px;
+                
+                // Red - Close
+                TrafficButton {
+                    button-color: #FF5F56;
+                    clicked => {
+                        root.close-window();
+                    }
+                }
+                
+                // Yellow - Minimize
+                TrafficButton {
+                    button-color: #FFBD2E;
+                    clicked => {
+                        root.minimize-window();
+                    }
+                }
+                
+                // Green - Maximize
+                TrafficButton {
+                    button-color: #27C93F;
+                    clicked => {
+                        root.maximize-window();
+                    }
+                }
+            }
+        }
+        
+        // CENTER: Spacer + Drag area
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+            TouchArea {
+                moved => {
+                    root.move-window();
+                }
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                        root.move-window();
+                    }
+                }
+            }
+        }
+        
+        // RIGHT: Server status with pulse (indicator sejajar dengan text)
+        VerticalLayout {
+            width: 100px;
+            alignment: center;
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                
+                // Pulse indicator
+                VerticalLayout {
+                    alignment: center;
+                    PulseDot {
+                        is-connected: root.is-connected;
+                    }
+                }
+                
+                // Status text (sejajar dengan indicator)
+                Text {
+                    text: root.status-text;
+                    color: root.is-connected ? #27C93F : #FF5F56;
+                    font-size: 11px;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

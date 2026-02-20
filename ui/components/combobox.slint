@@ -1,0 +1,328 @@
+// Custom ComboBox Component
+// Based on Slint's Fluent ComboBox with modified styling
+
+import { ScrollView } from "std-widgets.slint";
+import { Palette } from "../palette.slint";
+
+// Focus border component
+component FocusBorder inherits Rectangle {
+    border-width: 2px;
+    border-color: Palette.accent;
+    Rectangle {
+        x: parent.border-width;
+        y: parent.border-width;
+        width: parent.width - 2 * parent.border-width;
+        height: parent.height - 2 * parent.border-width;
+        border-width: 1px;
+        border-radius: max(0px, parent.border-radius - 2px);
+        border-color: Palette.text_primary;
+    }
+}
+
+// Menu border/popup container
+component MenuBorder inherits Rectangle {
+    border-radius: 8px;
+    background: Palette.bg_surface_1;
+    drop-shadow-blur: 16px;
+    drop-shadow-offset-y: 8px;
+    drop-shadow-color: #00000080;
+    Rectangle {
+        border-width: 1px;
+        border-radius: parent.border-radius;
+        border-color: Palette.border;
+    }
+}
+
+// List item untuk popup
+component ListItem inherits Rectangle {
+    in property <bool> is-selected;
+    in property <StandardListViewItem> item;
+    in property <bool> has-focus;
+    in property <bool> has-hover;
+    in property <bool> pressed;
+    in property <int> index;
+    min-width: i-layout.min-width;
+    min-height: max(32px, i-layout.min-height);
+    vertical-stretch: 0;
+    horizontal-stretch: 1;
+    accessible-role: list-item;
+    accessible-label: root.item.text;
+    states [
+        pressed when root.pressed: {
+            i-background.background: Palette.bg_surface_hover;
+        }
+        hover when root.has-hover: {
+            i-text.color: Palette.text_primary;
+            i-background.background: Palette.bg_surface_hover;
+            i-selector.height: root.is-selected ? 16px : 0;
+        }
+        is-selected when root.is-selected: {
+            i-background.background: Palette.selected_container;
+            i-selector.height: 16px;
+        }
+    ]
+    if root.has-focus: FocusBorder {
+        border-radius: 4px;
+    }
+    i-background := Rectangle {
+        width: root.width - 6px;
+        height: root.height - 4px;
+        background: transparent;
+        border-radius: 4px;
+        animate background { duration: 150ms; }
+        i-layout := HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            spacing: 4px;
+            i-text := Text {
+                text: root.item.text;
+                color: Palette.text_secondary;
+                font-size: 12px;
+                font-weight: 400;
+                vertical-alignment: center;
+                horizontal-alignment: left;
+                overflow: elide;
+                animate color { duration: 200ms; }
+            }
+        }
+
+        // Selector indicator - warna putih
+        i-selector := Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: 3px;
+            height: 0px;
+            background: #ffffff;  // Warna putih untuk selector
+            border-radius: 2px;
+            animate height {
+                duration: 150ms;
+                easing: ease-out;
+            }
+        }
+    }
+
+    @children
+}
+
+// ComboBox Base - logic handler
+component ComboBoxBase {
+    in property <[string]> model;
+    in property <bool> enabled <=> i-focus-scope.enabled;
+    out property <bool> has-focus: (i-focus-scope.has-focus || popup-has-focus) && root.enabled;
+    out property <bool> pressed <=> i-touch-area.pressed;
+    out property <bool> has-hover: i-touch-area.has-hover;
+    in-out property <int> current-index: 0;
+    in-out property <string> current-value: root.model[root.current-index];
+    in-out property <bool> popup-has-focus;
+    callback selected(current-value: string);
+    callback show-popup();
+    callback close-popup();
+    public function select(index: int) {
+        if !root.enabled {
+            return;
+        }
+        root.current-index = index;
+        if root.current-value != root.model[root.current-index] {
+            root.update-current-value();
+        }
+        root.selected(root.current-value);
+    }
+    public function move-selection-up() {
+        root.select(Math.max(root.current-index - 1, 0));
+    }
+    public function move-selection-down() {
+        root.select(Math.min(root.current-index + 1, root.model.length - 1));
+    }
+    public function popup-key-handler(event: KeyEvent) -> EventResult {
+        if (event.text == Key.UpArrow) {
+            root.move-selection-up();
+            return accept;
+        } else if (event.text == Key.DownArrow) {
+            root.move-selection-down();
+            return accept;
+        } else if (event.text == Key.Return || event.text == Key.Escape) {
+            root.close-popup();
+            return accept;
+        }
+        return reject;
+    }
+    function reset-current() {
+        root.current-index = 0;
+    }
+    function update-current-value() {
+        if root.current-index < 0 || root.current-index >= root.model.length {
+            root.current-value = "";
+            return;
+        }
+        root.current-value = root.model[root.current-index];
+    }
+    changed model => {
+        root.reset-current();
+    }
+    changed current-index => {
+        root.update-current-value();
+    }
+    in property <length> scroll-delta: 2px;
+    forward-focus: i-focus-scope;
+    i-focus-scope := FocusScope {
+        changed has-focus => {
+            if self.has-focus {
+                root.popup-has-focus = false;
+            }
+        }
+        key-pressed(event) => {
+            if (!self.enabled) {
+                return reject;
+            }
+            if (event.text == Key.UpArrow) {
+                root.move-selection-up();
+                return accept;
+            } else if (event.text == Key.DownArrow) {
+                root.move-selection-down();
+                return accept;
+            } else if (event.text == Key.Return) {
+                root.show-popup();
+            }
+            return reject;
+        }
+        i-touch-area := TouchArea {
+            enabled: root.enabled;
+            clicked => {
+                root.focus();
+                root.show-popup();
+            }
+            scroll-event(event) => {
+                if (!root.has-focus) {
+                    return reject;
+                }
+                if (event.delta-y < -root.scroll-delta) {
+                    root.move-selection-down();
+                    return accept;
+                }
+                if (event.delta-y > root.scroll-delta) {
+                    root.move-selection-up();
+                    return accept;
+                }
+                reject
+            }
+        }
+    }
+}
+
+// Komponen utama CustomComboBox
+export component CustomComboBox {
+    in property <[string]> model <=> base.model;
+    in property <bool> enabled <=> base.enabled;
+    out property <bool> has-focus <=> base.has-focus;
+    in-out property <int> current-index <=> base.current-index;
+    in-out property <string> current-value <=> base.current-value;
+    callback selected <=> base.selected;
+    property <length> popup-padding: 4px;
+    property <int> visible-items: min(6, model.length);
+    property <length> item-height: 32px;
+    min-width: max(160px, layout.min-height);
+    min-height: max(32px, layout.min-height);
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+    forward-focus: base;
+    accessible-role: combobox;
+    accessible-enabled: root.enabled;
+    states [
+        disabled when !root.enabled: {
+            background.background: Palette.bg_surface_2;
+            background.border-color: Palette.border;
+            text.color: Palette.muted;
+            icon.color: Palette.muted;
+        }
+        pressed when base.pressed: {
+            background.background: Palette.bg_surface_hover;
+            background.border-color: Palette.border;
+            text.color: Palette.text_secondary;
+            icon.color: Palette.text_secondary;
+        }
+        hover when base.has-hover: {
+            background.background: Palette.bg_surface_hover;
+        }
+    ]
+    base := ComboBoxBase {
+        width: 100%;
+        height: 100%;
+        show-popup => {
+            popup.show();
+        }
+        close-popup => {
+            popup.close();
+        }
+    }
+
+    background := Rectangle {
+        border-radius: 4px;
+        background: Palette.bg_surface_1;
+        border-width: 1px;
+        border-color: Palette.border;
+        animate border-color { duration: 200ms; }
+        animate background { duration: 150ms; }
+        layout := HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 8px;
+            text := Text {
+                horizontal-alignment: left;
+                vertical-alignment: center;
+                font-size: 12px;
+                font-weight: 400;
+                color: Palette.text_primary;
+                text: root.current-value;
+            }
+
+            icon := Text {
+                color: Palette.text_secondary;
+                width: 12px;
+                text: "▼";
+                font-size: 10px;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+                animate color { duration: 150ms; }
+            }
+        }
+    }
+
+    // Focus border
+    if root.has-focus && root.enabled: FocusBorder {
+        border-radius: background.border-radius;
+    }
+    popup := PopupWindow {
+        x: 0;
+        y: -4px;
+        width: root.width;
+        height: root.visible-items * root.item-height + 2 * root.popup-padding;
+        forward-focus: inner-fs;
+        inner-fs := FocusScope {
+            focus-changed-event => {
+                base.popup-has-focus = self.has-focus;
+            }
+            key-pressed(event) => {
+                return base.popup-key-handler(event);
+            }
+            MenuBorder {
+                ScrollView {
+                    VerticalLayout {
+                        alignment: start;
+                        padding: root.popup-padding;
+                        for value[index] in root.model: ListItem {
+                            item: { text: value };
+                            is-selected: index == root.current-index;
+                            has-hover: touch-area.has-hover;
+                            pressed: touch-area.pressed;
+                            touch-area := TouchArea {
+                                clicked => {
+                                    base.select(index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

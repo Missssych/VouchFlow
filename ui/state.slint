@@ -1,0 +1,293 @@
+// Global application state
+export global AppState {
+    // Window state
+    in-out property <bool> is-maximized: false;
+    in-out property <int> active-tab: 0;
+    callback tab-changed(int);
+    
+    // Server connection state
+    in-out property <bool> server-connected: false;
+    in-out property <string> server-status: "Stopped";  // "Stopped", "Starting", "Running", "Stopping"
+
+    //Dashboard state
+    in-out property <string> dashboard-search: "";
+    in-out property <string> dashboard-status: "";
+    in-out property <string> dashboard-provider: "";
+    in-out property <string> dashboard-category: "";
+    in-out property <string> dashboard-start-date: "";
+    in-out property <string> dashboard-end-date: "";
+    in-out property <bool> dashboard-auto-refresh: true;
+    
+    // Current time (updated from Rust backend)
+    in-out property <string> current-time: "00:00:00";
+    
+    // App version
+    in property <string> app-version: "v1.0.0";
+    
+    // Server control callback - called from sidebar trigger
+    callback toggle-server();
+}
+
+// Product page state
+export global ProdukState {
+    // Product data for table (from backend)
+    in-out property <[[StandardListViewItem]]> products: [];
+    
+    // Provider list for filter dropdown
+    in-out property <[string]> providers: ["Semua", "Byu", "Smartfren", "Telkomsel"];
+    
+    // Kategori options
+    in-out property <[string]> kategori-options: ["CEK", "RDM", "FIS"];
+    in-out property <[string]> kategori-filter-options: ["Semua", "CEK", "RDM", "FIS"];
+    
+    // Addon options (loaded from stok voucher)
+    in-out property <[string]> addon-options: [];
+    
+    // Search and filter state
+    in-out property <string> search-query: "";
+    in-out property <int> provider-filter-index: 0;
+    in-out property <int> kategori-filter-index: 0;  // NEW: filter by kategori
+    
+    // Form state for add/edit
+    in-out property <int> edit-product-id: -1;  // -1 = add mode, >0 = edit mode
+    in-out property <int> form-provider-index: 0;
+    in-out property <string> form-nama-produk: "";
+    in-out property <string> form-kode-produk: "";  // NEW: replaces kode_fisik/kode_redeem
+    in-out property <int> form-kategori-index: 0;    // NEW: CEK=0, RDM=1, FIS=2
+    in-out property <string> form-harga: "";
+    in-out property <int> form-addon-index: -1;      // NEW: index in addon-options, -1 = none
+    
+    // Selected product IDs for deletion
+    in-out property <[int]> selected-product-ids: [];
+    
+    // Panel state
+    in-out property <bool> form-panel-open: false;
+    
+    // Loading state
+    in-out property <bool> is-loading: false;
+    
+    // Callbacks to Rust backend
+    callback load-products();
+    callback load-addon-options();  // NEW: load distinct addon codes from stok
+    callback search-products(string, string, string);  // query, provider, kategori
+    callback save-product(int, string, string, string, string, string, string);  // id, provider, nama, kode_produk, kategori, harga, addon
+    callback delete-products([int]);
+    callback load-product-for-edit(int);
+    callback duplicate-product(int);
+}
+
+// Master Data Stok Voucher state
+export global StokState {
+    // Table data and corresponding IDs (same order as rows)
+    in-out property <[[StandardListViewItem]]> active-stocks: [];
+    in-out property <[int]> active-stock-ids: [];  // DB IDs corresponding to active-stocks rows
+    in-out property <[[StandardListViewItem]]> used-stocks: [];
+    in-out property <[int]> used-stock-ids: [];    // DB IDs corresponding to used-stocks rows
+    
+    // Stock addon summary (for panel)
+    in-out property <[[StandardListViewItem]]> stock-summary: [];
+    
+    // Current date (set from Rust at startup)
+    in-out property <int> current-year: 2026;
+    in-out property <int> current-month: 1;
+    in-out property <int> current-day: 1;
+    
+    // Filters
+    in-out property <int> provider-filter-index: 0;
+    in-out property <[string]> providers: ["Semua", "Byu", "Smartfren", "Telkomsel"];
+    in-out property <string> date-from: "";
+    in-out property <string> date-to: "";
+    in-out property <string> search-query-tab0: "";
+    in-out property <string> search-query-tab1: "";
+
+    
+    // Form state for add/edit
+    in-out property <int> edit-stock-id: -1;  // -1 = add mode, >0 = edit mode
+    in-out property <int> form-provider-index: 0;
+    in-out property <string> form-kode-addon: "";
+    in-out property <string> form-barcode: "";
+    in-out property <string> form-serial-number: "";
+    in-out property <string> form-expired-date: "";
+    
+    // Panel states
+    in-out property <bool> form-panel-open: false;
+    in-out property <bool> summary-panel-open: false;
+    
+    // Check voucher dialog
+    in-out property <bool> check-dialog-open: false;
+    in-out property <int> check-dialog-countdown: 5;  // seconds
+    in-out property <string> check-result-product: "";
+    in-out property <string> check-result-expiry: "";
+    in-out property <string> check-result-status: "";
+    in-out property <string> check-result-message: "";
+    
+    // Loading state
+    in-out property <bool> is-loading: false;
+    in-out property <bool> is-checking: false;
+    
+    // Callbacks to Rust backend
+    callback load-active-stocks();
+    callback load-used-stocks(string, string);  // date_from, date_to
+    callback save-stock(int, string, string, string, string, string);  // id, provider, kode_addon, barcode, serial, expired
+    callback delete-stocks([int]);
+    callback change-status([int], string);  // ids, new_status
+    callback check-voucher(string, string);  // barcode, provider → opens dialog
+    callback check-expired(string, string);  // provider, barcode → fills expired_date
+    callback load-stock-for-edit(int);
+    callback load-stock-summary();
+    
+    // Range-based operations for multi-selection
+    // args: start_index, end_index, all_ids
+    callback delete-stocks-by-range(int, int, [int]);
+    // args: start_index, end_index, all_ids, new_status
+    callback change-status-by-range(int, int, [int], string);
+}
+
+// Utility page state (Cek & Redeem Voucher)
+export global UtilityState {
+    // Single check input & state
+    in-out property <string> single-barcode: "";
+    in-out property <string> single-provider: "Byu";
+    in-out property <bool> single-checking: false;
+    
+    // Single check result (displayed in Information Voucher section)
+    in-out property <string> single-result-status: "";
+    in-out property <string> single-result-description: "";
+    in-out property <string> single-result-expiry: "";
+    in-out property <string> single-result-message: "";
+    in-out property <string> single-result-raw: "";  // raw JSON for detailed view
+    
+    // Bulk check input & state
+    in-out property <string> bulk-barcodes: "";  // newline separated
+    in-out property <string> bulk-provider: "Byu";
+    in-out property <bool> bulk-checking: false;
+    in-out property <[[StandardListViewItem]]> bulk-results: [];
+    
+    // Redeem input & state
+    in-out property <string> redeem-provider: "Byu";
+    in-out property <string> redeem-msisdn: "";
+    in-out property <string> redeem-voucher-code: "";
+    in-out property <bool> redeem-processing: false;
+    
+    // Redeem result dialog
+    in-out property <bool> redeem-dialog-open: false;
+    in-out property <int> redeem-dialog-countdown: 5;  // seconds
+    in-out property <bool> redeem-result-success: false;
+    in-out property <string> redeem-result-message: "";
+    in-out property <string> redeem-result-raw: "";
+    
+    // Callbacks to Rust backend
+    callback check-voucher-single(string, string);  // barcode, provider
+    callback check-voucher-bulk(string, string);    // barcodes (newline sep), provider
+    callback redeem-voucher(string, string, string); // provider, msisdn, voucher_code
+    callback close-redeem-dialog();  // close dialog (also called by auto-close timer)
+}
+
+// Dashboard state (real-time transactions from Central Store)
+export global DashboardState {
+    // Transaction data
+    in-out property <[[StandardListViewItem]]> transactions: [];
+    in-out property <[int]> transaction-ids: [];
+    
+    // Monitoring counters
+    in-out property <int> total-transactions: 0;
+    in-out property <int> success-count: 0;
+    in-out property <int> pending-count: 0;
+    in-out property <int> failed-count: 0;
+    
+    // Current date (set from Rust at startup)
+    in-out property <int> current-year: 2026;
+    in-out property <int> current-month: 1;
+    in-out property <int> current-day: 1;
+    
+    // Filters
+    in-out property <[string]> status-options: ["Semua", "Success", "Pending", "Failed"];
+    in-out property <[string]> provider-options: ["Semua", "Byu", "Smartfren", "Telkomsel"];
+    in-out property <[string]> kategori-options: ["Semua", "CEK", "RDM", "FIS"];
+    in-out property <int> status-filter-index: 0;
+    in-out property <int> provider-filter-index: 0;
+    in-out property <int> kategori-filter-index: 0;
+    in-out property <string> search-query: "";
+    in-out property <string> date-from: "";
+    in-out property <string> date-to: "";
+    in-out property <bool> auto-refresh: true;
+    in-out property <int> limit-index: 0;  // 0=100, 1=200, 2=300, 3=500, 4=All
+    
+    // Loading state
+    in-out property <bool> is-loading: false;
+    
+    // Transaction detail for overlay panel
+    in-out property <string> detail-tx-id: "";
+    in-out property <string> detail-request-id: "";
+    in-out property <string> detail-status: "";
+    in-out property <string> detail-provider: "";
+    in-out property <string> detail-produk: "";
+    in-out property <string> detail-nomor: "";
+    in-out property <string> detail-kategori: "";
+    in-out property <string> detail-waktu: "";
+    in-out property <string> detail-result-code: "";
+    in-out property <string> detail-result-payload: "";
+    in-out property <[[StandardListViewItem]]> detail-flow-logs: [];
+    
+    // Voucher check result (for dialog)
+    in-out property <bool> voucher-dialog-visible: false;
+    in-out property <string> voucher-status: "";
+    in-out property <string> voucher-expired: "";
+    in-out property <string> voucher-provider: "";
+    in-out property <string> voucher-barcode: "";
+    in-out property <int> voucher-dialog-countdown: 5;  // seconds
+    
+    // Callbacks - Data loading
+    callback load-transactions();
+    callback filter-transactions(string, string, string, string, string, int, string); // status, provider, kategori, from, to, limit, search
+    callback get-transaction-detail(int);  // transaction_id
+    
+    // Callbacks - Admin actions
+    callback check-voucher(int);        // tx_id → validates kategori & calls provider check API
+    callback mark-success(int);         // tx_id → update SUCCESS + send webhook
+    callback mark-failed(int);          // tx_id → update FAILED + send webhook
+    callback retry-transaction(int);    // tx_id → re-execute flow (same request_id) + send webhook
+    callback load-stock-summary();      // for stock check button
+}
+
+// Logs Terminal state (ring buffer display)
+export global LogsState {
+    // Log entries (from ring buffer, max 1000)
+    in-out property <[[StandardListViewItem]]> logs: [];
+    
+    // Filter options
+    in-out property <[string]> level-options: ["Semua", "INFO", "WARN", "ERROR"];
+    in-out property <int> level-filter-index: 0;
+    
+    // Control
+    in-out property <bool> auto-scroll: true;
+    in-out property <bool> paused: false;
+    
+    // Callbacks
+    callback load-logs();
+    callback clear-logs();
+    callback toggle-pause();
+}
+
+// Settings state (server + webhook config)
+export global SettingsState {
+    // API Server config (local server yang menerima request)
+    in-out property <string> server-address: "127.0.0.1";
+    in-out property <string> server-port: "8080";
+    
+    // Webhook config (untuk async response jika transaksi >3-5 detik)
+    // Flow: transaksi lambat → response pending → setelah selesai → kirim ke webhook
+    in-out property <string> webhook-address: "127.0.0.1";
+    in-out property <string> webhook-port: "8081";
+    
+    // Status
+    in-out property <bool> is-saving: false;
+    in-out property <string> save-status: "";
+    in-out property <bool> server-running: false;
+    
+    // Callbacks
+    callback load-config();
+    callback save-config(string, string, string, string);  // server_addr, server_port, webhook_addr, webhook_port
+    callback start-server();
+    callback stop-server();
+}

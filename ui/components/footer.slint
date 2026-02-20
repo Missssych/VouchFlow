@@ -1,0 +1,64 @@
+import { Palette } from "../palette.slint";
+
+export component Footer inherits Rectangle {
+    in property <string> version: "v1.0.0";
+    in property <string> current-time: "00:00:00";
+    height: 28px;
+    background: transparent;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        
+        // LEFT: Version info
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+                Text {
+                    text: "VouchFlow";
+                    color: Palette.text-secondary;
+                    font-size: 11px;
+                    font-weight: 500;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: 1px;
+                    height: 12px;
+                    background: Palette.border;
+                    VerticalLayout {
+                        alignment: center;
+                    }
+                }
+
+                Text {
+                    text: version;
+                    color: Palette.muted;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        
+        // CENTER: Spacer
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        
+        // RIGHT: Current time
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                alignment: end;
+                Text {
+                    text: current-time;
+                    color: Palette.muted;
+                    font-size: 11px;
+                    font-family: "Consolas";
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

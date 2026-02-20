@@ -1,0 +1,151 @@
+// Custom Button Component
+// Based on Slint Fluent design with white styling for dark theme
+import { Palette } from "../palette.slint";
+
+// Focus border for accessibility
+component FocusBorder inherits Rectangle {
+    border-width: 2px;
+    border-color: Palette.accent;
+    Rectangle {
+        x: parent.border-width;
+        y: parent.border-width;
+        width: parent.width - 2 * parent.border-width;
+        height: parent.height - 2 * parent.border-width;
+        border-width: 1px;
+        border-radius: max(0px, parent.border-radius - 2px);
+        border-color: Palette.text_primary;
+    }
+}
+
+export component CustomButton {
+    in property <string> text: "";
+    in property <image> icon;
+    in property <length> icon-size: 16px;
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    in property <bool> checkable: false;
+    in property <bool> colorize-icon: true;
+    in property <bool> show-text: true;
+    in property <length> border-radius: 6px;
+    out property <bool> has-focus: i-focus-scope.has-focus;
+    out property <bool> has-hover: i-touch-area.has-hover;
+    out property <bool> pressed: root.enabled && i-touch-area.pressed;
+    in-out property <bool> checked: false;
+    callback clicked;
+
+    // Colors - default white button style for dark theme
+    private property <brush> bg-color: root.primary || root.checked ? Palette.accent : #ffffff;
+    private property <brush> bg-hover: root.primary || root.checked ? Palette.ancent-hover : #e8e8e8;
+    private property <brush> bg-pressed: root.primary || root.checked ? Palette.bg_surface_hover : #d4d4d4;
+    private property <brush> text-color: root.primary || root.checked ? #ffffff : #1a1a1a;
+    private property <brush> border-color: root.primary || root.checked ? Palette.accent : #d4d4d4;
+    min-width: max(32px, i-layout.min-width);
+    min-height: max(32px, i-layout.min-height);
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    forward-focus: i-focus-scope;
+    accessible-role: button;
+    accessible-enabled: root.enabled;
+    accessible-checkable: root.checkable;
+    accessible-checked: root.checked;
+    accessible-label: root.text;
+    accessible-action-default => {
+        i-touch-area.clicked();
+    }
+    states [
+        disabled when !root.enabled: {
+            i-background.background: root.primary || root.checked ? Palette.bg_surface_2 : #f0f0f0;
+            i-border.border-color: root.primary || root.checked ? transparent : #e0e0e0;
+            root.text-color: #a0a0a0;
+            i-background.opacity: 0.6;
+        }
+        pressed when root.pressed: {
+            i-background.background: root.bg-pressed;
+            i-border.border-color: root.border-color;
+            root.text-color: root.primary || root.checked ? #ffffff : #333333;
+        }
+        hover when i-touch-area.has-hover: {
+            i-background.background: root.bg-hover;
+            i-border.border-color: root.primary || root.checked ? Palette.accent : #c0c0c0;
+        }
+        checked when root.checked: {
+            i-background.background: Palette.accent;
+            i-border.border-color: Palette.accent;
+            root.text-color: #ffffff;
+        }
+    ]
+    i-background := Rectangle {
+        border-radius: root.border-radius;
+        background: root.bg-color;
+        drop-shadow-blur: 4px;
+        drop-shadow-offset-y: 1px;
+        drop-shadow-color: #00000040;
+        animate background, opacity { duration: 150ms; }
+        i-border := Rectangle {
+            border-radius: parent.border-radius;
+            border-width: 1px;
+            border-color: root.border-color;
+            animate border-color { duration: 150ms; }
+        }
+
+        i-layout := VerticalLayout {
+            width: parent.width;
+            height: parent.height;
+            alignment: center;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 5px;
+                padding-bottom: 5px;
+                spacing: 6px;
+                alignment: center;
+                if (root.icon.width > 0 && root.icon.height > 0): Image {
+                    source <=> root.icon;
+                    width: root.icon-size;
+                    height: root.icon-size;
+                    colorize: root.colorize-icon ? root.text-color : transparent;
+                    animate colorize { duration: 150ms; }
+                }
+                if (root.text != "" && root.show-text): Text {
+                    font-size: 13px;
+                    font-weight: 550;
+                    horizontal-alignment: center;
+                    vertical-alignment: bottom;
+                    text: root.text;
+                    color: root.text-color;
+                    animate color { duration: 150ms; }
+                    accessible-role: none;
+                }
+            }
+        }
+    }
+
+    i-touch-area := TouchArea {
+        enabled <=> root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => {
+            if (root.checkable) {
+                root.checked = !root.checked;
+            }
+            root.clicked();
+        }
+    }
+
+    i-focus-scope := FocusScope {
+        x: 0;
+        width: 0px; // Do not react on clicks
+        enabled <=> root.enabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                i-touch-area.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    // Focus border
+    if (root.has-focus && root.enabled): FocusBorder {
+        border-radius: i-background.border-radius;
+    }
+}

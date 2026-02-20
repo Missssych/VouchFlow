@@ -1,0 +1,166 @@
+// Custom Tabs Component
+// Reusable tab bar dengan selector di atas tombol
+
+import { Palette } from "../palette.slint";
+
+// Struct untuk item tab
+export struct TabItem {
+    title: string,
+    icon: image,
+    has-icon: bool,
+}
+
+// Komponen tombol tab individual
+component TabButton inherits Rectangle {
+    in property <string> title;
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <bool> selected: false;
+    in property <bool> fixed-width: false;
+    in property <length> icon-size: 16px;
+    callback clicked;
+    
+    // Jika tidak fixed-width, stretch untuk fill parent
+    horizontal-stretch: root.fixed-width ? 0 : 1;
+    min-height: 36px;
+    border-radius: 4px;
+    
+    // Warna background: selected = lebih terang (surface), unselected = lebih gelap/transparent (bg)
+    background: root.selected ? Palette.bg_surface_1 : Palette.bg.with-alpha(0.6);
+    animate background {
+        duration: 150ms;
+        easing: ease-out;
+    }
+    states [
+        pressed when touch-area.pressed: {
+            root.background: Palette.bg_surface_hover;
+        }
+        hover when touch-area.has-hover && !root.selected: {
+            root.background: Palette.bg_surface_hover;
+        }
+    ]
+    touch-area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+    
+    // Selection indicator (top bar)
+    selector := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 0px;
+        width: 0px;
+        height: 3px;
+        background: Palette.accent;
+        border-radius: 2px;
+        animate width {
+            duration: 150ms;
+            easing: ease-out;
+        }
+        states [
+            selected when root.selected: {
+                width: parent.width;
+            }
+        ]
+    }
+    
+    // Content layout
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        padding: 8px;
+        
+        // Icon (optional)
+        if root.has-icon: Rectangle {
+            width: root.icon-size;
+            height: root.icon-size;
+            Image {
+                width: 100%;
+                height: 100%;
+                source: root.icon;
+                colorize: root.selected ? Palette.text_primary : Palette.text_secondary;
+                animate colorize {
+                    duration: 150ms;
+                    easing: ease-out;
+                }
+            }
+        }
+        
+        // Title
+        Text {
+            text: root.title;
+            font-size: 13px;
+            font-weight: root.selected ? 600 : 400;
+            color: root.selected ? Palette.text_primary : Palette.text_secondary;
+            vertical-alignment: center;
+            animate color {
+                duration: 150ms;
+                easing: ease-out;
+            }
+        }
+    }
+}
+
+// Komponen utama CustomTabs
+export component CustomTabs inherits Rectangle {
+    in property <[TabItem]> tabs;
+    in-out property <int> active-tab: 0;
+    in property <bool> fixed-button-width: false;
+    in property <length> button-min-width: 80px;
+    in property <length> icon-size: 16px;
+    in property <length> spacing: 4px;
+    callback tab-changed(int);
+    min-height: 40px;
+    background: transparent;
+    HorizontalLayout {
+        spacing: root.spacing;
+        padding: 2px;
+        for tab[index] in root.tabs: TabButton {
+            title: tab.title;
+            icon: tab.icon;
+            has-icon: tab.has-icon;
+            icon-size: root.icon-size;
+            selected: index == root.active-tab;
+            fixed-width: root.fixed-button-width;
+            min-width: root.fixed-button-width ? root.button-min-width : 0px;
+            clicked => {
+                root.active-tab = index;
+                root.tab-changed(index);
+            }
+        }
+        
+        // Spacer untuk full-width bar jika menggunakan fixed-width buttons
+        if root.fixed-button-width: Rectangle {
+            horizontal-stretch: 1;
+        }
+    }
+}
+
+// Versi dengan container background
+export component CustomTabsContainer inherits Rectangle {
+    in property <[TabItem]> tabs;
+    in-out property <int> active-tab: 0;
+    in property <bool> fixed-button-width: false;
+    in property <length> button-min-width: 80px;
+    in property <length> icon-size: 16px;
+    in property <length> spacing: 4px;
+    callback tab-changed(int);
+    min-height: 44px;
+    background: Palette.bg_surface_2;
+    border-radius: 6px;
+    CustomTabs {
+        x: 4px;
+        y: 2px;
+        width: parent.width - 8px;
+        tabs: root.tabs;
+        active-tab <=> root.active-tab;
+        fixed-button-width: root.fixed-button-width;
+        button-min-width: root.button-min-width;
+        icon-size: root.icon-size;
+        spacing: root.spacing;
+        tab-changed(index) => {
+            root.tab-changed(index);
+        }
+    }
+}
