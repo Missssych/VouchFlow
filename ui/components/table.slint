@@ -5,12 +5,7 @@ import { ListView } from "std-widgets.slint";
 import { Palette } from "../palette.slint";
 import { CustomCheckBox } from "checkbox.slint";
 
-export struct TableMenuItem {
-    title: string,
-    icon: image,
-    action: string,
-    disabled: bool,
-}
+import { ContextMenuItem, CustomContextMenu } from "context_menu.slint";
 
 // Komponen kolom header tabel
 component TableViewColumn inherits Rectangle {
@@ -135,7 +130,7 @@ export component CustomTableView {
     in property <bool> show-selection-column: true;
     in property <length> selection-checkbox-size: 14px;
     in property <length> selection-column-width: max(32px, root.selection-checkbox-size + 12px);
-    in property <[TableMenuItem]> context-menu-items: [];
+    in property <[ContextMenuItem]> context-menu-items: [];
     in property <bool> context-menu-enabled: root.rows.length > 0 && root.context-menu-items.length > 0;
     in-out property <bool> select-all: false;
     in-out property <int> selection-anchor: -1;
@@ -174,6 +169,8 @@ export component CustomTableView {
     private property <int> selection-low: min(selection-start, selection-end);
     private property <int> selection-high: max(selection-start, selection-end);
     out property <int> selected-count: root.rows.length > 0 ? (root.has-selection ? (root.selection-high - root.selection-low + 1) : (root.current-row >= 0 && root.current-row < root.rows.length ? 1 : 0)) : 0;
+    property <length> context-menu-pos-x;
+    property <length> context-menu-pos-y;
     function sort(index: int) {
         if (root.current-sort-column != index) {
             root.columns[root.current-sort-column].sort-order = SortOrder.unsorted;
@@ -314,6 +311,16 @@ export component CustomTableView {
                         if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.left) {
                             root.select-row(idx, pe.modifiers.shift, pe.modifiers.control);
                         }
+                        if (pe.kind == PointerEventKind.down && pe.button == PointerEventButton.right) {
+                            if (!root.has-selection || idx < root.selection-low || idx > root.selection-high) {
+                                root.select-row(idx, false, false);
+                            }
+                            if (root.context-menu-enabled) {
+                                root.context-menu-pos-x = pos.x - root.absolute-position.x;
+                                root.context-menu-pos-y = pos.y - root.absolute-position.y;
+                                context-menu.show();
+                            }
+                        }
                     }
                     clicked => {
                         root.focus();
@@ -346,22 +353,12 @@ export component CustomTableView {
         }
     }
 
-    // Context menu overlay - positioned on top of list-container area only
-    ContextMenuArea {
-        x: list-container.x;
-        y: header-rect.height;
-        width: list-container.width;
-        height: list-container.height;
-        enabled: root.context-menu-enabled && root.has-selection;
-        Menu {
-            for item[index] in root.context-menu-items: MenuItem {
-                icon: item.icon;
-                title: item.title;
-                enabled: !item.disabled;
-                activated => {
-                    root.context-menu-activated(item.action);
-                }
-            }
+    context-menu := CustomContextMenu {
+        x: root.context-menu-pos-x;
+        y: root.context-menu-pos-y;
+        items: root.context-menu-items;
+        activated(action) => {
+            root.context-menu-activated(action);
         }
     }
 
