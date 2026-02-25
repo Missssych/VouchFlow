@@ -7,6 +7,7 @@ use vouchflow::domain::DomainError;
 use vouchflow::infrastructure::channels::{CommandSender, DbCommandSender};
 use vouchflow::infrastructure::database::Database;
 use crate::{AppWindow, DashboardState, StokState};
+use super::model_helpers::{with_table, TableId};
 
 /// Set current date on DashboardState and StokState date pickers
 pub fn init_dates(ui: &AppWindow) {
@@ -519,6 +520,15 @@ pub fn register(
             });
         });
     }
+
+    // --- Sort transactions ---
+    {
+        DashboardState::get(ui).on_sort_transactions(move |column_index, ascending| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with_table(TableId::Dashboard, |m| m.sort_by_column(column_index as usize, ascending));
+            });
+        });
+    }
 }
 
 // ---- Helpers ----
@@ -564,6 +574,13 @@ fn read_dashboard_filters(ui_weak: &slint::Weak<AppWindow>) -> (String, String, 
     }
 }
 
+fn next_day_ymd(date: &str) -> Option<String> {
+    chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.succ_opt())
+        .map(|d| d.format("%Y-%m-%d").to_string())
+}
+
 /// Query transactions from DB with filters
 async fn query_transactions(
     db: &Database,
@@ -599,12 +616,20 @@ async fn query_transactions(
             params.push(kategori.clone());
         }
         if !date_from.is_empty() {
-            conditions.push("DATE(created_at) >= ?".to_string());
+            // Index-friendly range start.
+            conditions.push("created_at >= ?".to_string());
             params.push(date_from.clone());
         }
         if !date_to.is_empty() {
-            conditions.push("DATE(created_at) <= ?".to_string());
-            params.push(date_to.clone());
+            // Index-friendly exclusive range end (next day at 00:00).
+            if let Some(next_day) = next_day_ymd(&date_to) {
+                conditions.push("created_at < ?".to_string());
+                params.push(next_day);
+            } else {
+                // Fallback for invalid date input.
+                conditions.push("created_at <= ?".to_string());
+                params.push(date_to.clone());
+            }
         }
         if !search.is_empty() {
             conditions.push("(request_id LIKE ? OR nomor LIKE ? OR kode_produk LIKE ? OR COALESCE(sn, '') LIKE ?)".to_string());
@@ -665,8 +690,12 @@ fn apply_transactions_to_ui(
                 slint::ModelRc::new(slint::VecModel::from(items))
             }).collect();
             let ids: Vec<i32> = rows.iter().map(|r| r.0 as i32).collect();
-            state.set_transactions(slint::ModelRc::new(slint::VecModel::from(table_rows)));
-            state.set_transaction_ids(slint::ModelRc::new(slint::VecModel::from(ids)));
+
+            let (rows_model, ids_model) = with_table(TableId::Dashboard, |m| {
+                m.set_all(table_rows, ids)
+            });
+            state.set_transactions(rows_model);
+            state.set_transaction_ids(ids_model);
             state.set_total_transactions(total as i32);
             state.set_success_count(success as i32);
             state.set_pending_count(pending as i32);

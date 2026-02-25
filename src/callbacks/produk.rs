@@ -7,6 +7,7 @@ use vouchflow::application::services::ProductService;
 use vouchflow::infrastructure::channels::DbCommandSender;
 use vouchflow::infrastructure::database::Database;
 use crate::{AppWindow, ProdukState};
+use super::model_helpers::{with_table, TableId};
 
 /// Register all product-related callbacks on the UI
 pub fn register(
@@ -45,8 +46,9 @@ pub fn register(
                                 }).collect();
                                 let ids: Vec<i32> = products.iter().map(|p| p.id as i32).collect();
 
-                                ProdukState::get(&ui).set_products(slint::ModelRc::new(slint::VecModel::from(rows)));
-                                ProdukState::get(&ui).set_selected_product_ids(slint::ModelRc::new(slint::VecModel::from(ids)));
+                                let (rows_model, ids_model) = with_table(TableId::Produk, |m| m.set_all(rows, ids));
+                                ProdukState::get(&ui).set_products(rows_model);
+                                ProdukState::get(&ui).set_selected_product_ids(ids_model);
                             }
                         });
                     }
@@ -87,8 +89,9 @@ pub fn register(
                                 }).collect();
                                 let ids: Vec<i32> = products.iter().map(|p| p.id as i32).collect();
 
-                                ProdukState::get(&ui).set_products(slint::ModelRc::new(slint::VecModel::from(rows)));
-                                ProdukState::get(&ui).set_selected_product_ids(slint::ModelRc::new(slint::VecModel::from(ids)));
+                                let (rows_model, ids_model) = with_table(TableId::Produk, |m| m.set_all(rows, ids));
+                                ProdukState::get(&ui).set_products(rows_model);
+                                ProdukState::get(&ui).set_selected_product_ids(ids_model);
                             }
                         });
                     }
@@ -106,30 +109,68 @@ pub fn register(
         ProdukState::get(ui).on_save_product(move |id, provider, nama, kode_produk, kategori, harga, addon| {
             let ui_weak = ui_handle.clone();
             let cmd_tx = tx.clone();
-            let provider = provider.to_string();
-            let nama = nama.to_string();
-            let kode_produk = kode_produk.to_string();
-            let kategori = kategori.to_string();
+            let provider_str = provider.to_string();
+            let nama_str = nama.to_string();
+            let kode_str = kode_produk.to_string();
+            let kategori_str = kategori.to_string();
+            let harga_str = harga.to_string();
             let harga_val: f64 = harga.parse().unwrap_or(0.0);
-            let addon = if addon.is_empty() { None } else { Some(addon.to_string()) };
+            let addon_str = addon.to_string();
+            let addon_opt = if addon.is_empty() { None } else { Some(addon.to_string()) };
+            let is_create = id < 0;
+            let row_id = id;
 
             rth.spawn(async move {
-                let cmd = if id < 0 {
+                let cmd = if is_create {
                     vouchflow::domain::DbCommand::CreateProduct {
-                        provider, nama_produk: nama, kode_produk, kategori, harga: harga_val, kode_addon: addon
+                        provider: provider_str.clone(),
+                        nama_produk: nama_str.clone(),
+                        kode_produk: kode_str.clone(),
+                        kategori: kategori_str.clone(),
+                        harga: harga_val,
+                        kode_addon: addon_opt,
                     }
                 } else {
                     vouchflow::domain::DbCommand::UpdateProduct {
-                        id: id as i64, provider, nama_produk: nama, kode_produk, kategori, harga: harga_val, kode_addon: addon
+                        id: row_id as i64,
+                        provider: provider_str.clone(),
+                        nama_produk: nama_str.clone(),
+                        kode_produk: kode_str.clone(),
+                        kategori: kategori_str.clone(),
+                        harga: harga_val,
+                        kode_addon: addon_opt,
                     }
                 };
 
                 if let Err(e) = cmd_tx.send(cmd).await {
                     tracing::error!("Failed to save product: {}", e);
                 } else {
+                    // Build row from callback data — instant visual feedback
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak.upgrade() {
-                            ProdukState::get(&ui).invoke_load_products();
+                            let row = slint::ModelRc::new(slint::VecModel::from(vec![
+                                slint::StandardListViewItem::from(provider_str.as_str()),
+                                slint::StandardListViewItem::from(nama_str.as_str()),
+                                slint::StandardListViewItem::from(kode_str.as_str()),
+                                slint::StandardListViewItem::from(kategori_str.as_str()),
+                                slint::StandardListViewItem::from(harga_str.as_str()),
+                                slint::StandardListViewItem::from(addon_str.as_str()),
+                            ]));
+
+                            if is_create {
+                                // Insert at top for instant feedback
+                                with_table(TableId::Produk, |m| m.push_front(-1, row));
+                                // Reload after delay to get real DB ID
+                                let ui_weak2 = ui.as_weak();
+                                slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
+                                    if let Some(ui) = ui_weak2.upgrade() {
+                                        ProdukState::get(&ui).invoke_load_products();
+                                    }
+                                });
+                            } else {
+                                // Update existing row in place (real ID already known)
+                                with_table(TableId::Produk, |m| m.update_row(row_id, row));
+                            }
                         }
                     });
                 }
@@ -146,6 +187,7 @@ pub fn register(
             let ui_weak = ui_handle.clone();
             let cmd_tx = tx.clone();
             let id_vec: Vec<i64> = ids.iter().map(|id| id as i64).collect();
+            let id_i32s: Vec<i32> = ids.iter().collect();
 
             rth.spawn(async move {
                 let cmd = vouchflow::domain::DbCommand::DeleteProducts { ids: id_vec };
@@ -153,12 +195,48 @@ pub fn register(
                     tracing::error!("Failed to delete products: {}", e);
                 } else {
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            ProdukState::get(&ui).invoke_load_products();
+                        if let Some(_ui) = ui_weak.upgrade() {
+                            // Remove rows directly from model — no DB re-query needed
+                            with_table(TableId::Produk, |m| m.remove_by_ids(&id_i32s));
                         }
                     });
                 }
             });
+        });
+    }
+
+    // --- Delete products by range ---
+    {
+        let tx = db_cmd_tx_clone.clone();
+        let rth = rt_handle.clone();
+        ProdukState::get(ui).on_delete_products_by_range(move |start, end, all_ids| {
+            let start = start as usize;
+            let end = end as usize;
+            let mut ids = Vec::new();
+            let mut id_i32s = Vec::new();
+            let row_count = all_ids.row_count();
+            if start <= end && end < row_count {
+                for i in start..=end {
+                    if let Some(id) = all_ids.row_data(i) {
+                        ids.push(id as i64);
+                        id_i32s.push(id);
+                    }
+                }
+            }
+            tracing::info!("Deleting products by range {}-{} ({} items)", start, end, ids.len());
+            if !ids.is_empty() {
+                let cmd_tx = tx.clone();
+                rth.spawn(async move {
+                    let cmd = vouchflow::domain::DbCommand::DeleteProducts { ids };
+                    if let Err(e) = cmd_tx.send(cmd).await {
+                        tracing::error!("Failed to delete products: {}", e);
+                    } else {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            with_table(TableId::Produk, |m| m.remove_by_ids(&id_i32s));
+                        });
+                    }
+                });
+            }
         });
     }
 
@@ -279,6 +357,15 @@ pub fn register(
                     }
                     Err(e) => tracing::error!("Failed to load addon options: {}", e),
                 }
+            });
+        });
+    }
+
+    // --- Sort products ---
+    {
+        ProdukState::get(ui).on_sort_products(move |column_index, ascending| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with_table(TableId::Produk, |m| m.sort_by_column(column_index as usize, ascending));
             });
         });
     }

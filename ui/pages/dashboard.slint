@@ -350,11 +350,8 @@ export component Dashboard inherits Rectangle {
                                 current-index <=> DashboardState.limit-index;
                                 min-width: 70px;
                                 max-width: 80px;
-                                enabled: !DashboardState.auto-refresh;
                                 selected(value) => {
-                                    if (!DashboardState.auto-refresh) {
-                                        root.apply-filters();
-                                    }
+                                    root.apply-filters();
                                 }
                             }
 
@@ -506,6 +503,12 @@ export component Dashboard inherits Rectangle {
             table := CustomTableView {
                 width: 100%;
                 height: 100%;
+                sort-ascending(col) => {
+                    DashboardState.sort-transactions(col, true);
+                }
+                sort-descending(col) => {
+                    DashboardState.sort-transactions(col, false);
+                }
                 columns: [
                     { title: "Idtrx", width: 80px },
                     { title: "Provider", width: 90px },

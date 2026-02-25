@@ -652,7 +652,7 @@ impl DbWriter {
     
     /// Reserve a single voucher atomically (read + mark RESERVED in one operation)
     async fn reserve_single_voucher(&self, kode_addon: &str) -> Result<ReservedVoucher, DomainError> {
-        self.db.with_writer(|conn| {
+        let reserved = self.db.with_writer(|conn| {
             // Find first ACTIVE voucher FIFO by expired_date
             let result = conn.query_row(
                 "SELECT id, barcode, serial_number, expired_date FROM stok_voucher 
@@ -691,7 +691,16 @@ impl DbWriter {
                 }
                 Err(e) => Err(DomainError::DatabaseError(e.to_string())),
             }
-        }).await
+        }).await?;
+
+        // Emit StokStatusChanged event so UI can track stock changes
+        let _ = self.event_tx.send(DomainEvent::StokStatusChanged {
+            seq: self.next_seq(),
+            ids: vec![reserved.voucher_id],
+            new_status: "RESERVED".to_string(),
+        });
+
+        Ok(reserved)
     }
     
     /// Reserve multiple vouchers atomically

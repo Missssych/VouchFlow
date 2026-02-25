@@ -23,6 +23,8 @@ import { StokState } from "../state.slint";
 export component MasterData inherits Rectangle {
     background: transparent;
     private property <int> active-tab: 0;
+    private property <int> voucher-form-focus-index: 0;
+    private property <int> voucher-form-field-count: 5;
     property <string> search-query: "";
     function pad2(value: int) -> string {
         if (value < 10) {
@@ -62,6 +64,48 @@ export component MasterData inherits Rectangle {
         StokState.form-barcode = "";
         StokState.form-serial-number = "";
         StokState.form-expired-date = "";
+    }
+    function save-voucher-form() {
+        StokState.save-stock(
+            StokState.edit-stock-id,
+            StokState.providers[StokState.form-provider-index + 1],  // +1 to skip "Semua"
+            StokState.form-kode-addon,
+            StokState.form-barcode,
+            StokState.form-serial-number,
+            StokState.form-expired-date);
+    }
+    function focus-voucher-form-field(index: int) {
+        let target = min(max(index, 0), root.voucher-form-field-count - 1);
+        root.voucher-form-focus-index = target;
+        if (target == 0) {
+            provider-field.focus();
+        } else if (target == 1) {
+            kode-addon-field.focus-input();
+        } else if (target == 2) {
+            barcode-field.focus-input();
+        } else if (target == 3) {
+            serial-number-field.focus-input();
+        } else {
+            expired-date-field.focus-input();
+        }
+    }
+    function move-voucher-form-focus(delta: int) {
+        root.focus-voucher-form-field(root.voucher-form-focus-index + delta);
+    }
+    function handle-voucher-form-key(event: KeyEvent) -> EventResult {
+        if (event.text == Key.UpArrow) {
+            root.move-voucher-form-focus(-1);
+            return accept;
+        }
+        if (event.text == Key.DownArrow) {
+            root.move-voucher-form-focus(1);
+            return accept;
+        }
+        if (event.text == Key.Return || event.text == "\n" || event.text == "\u{000d}") {
+            root.save-voucher-form();
+            return accept;
+        }
+        return reject;
     }
     
     // Init callback
@@ -241,6 +285,12 @@ export component MasterData inherits Rectangle {
                 table := CustomTableView {
                     width: 100%;
                     height: 100%;
+                    sort-ascending(col) => {
+                        StokState.sort-active-stocks(col, true);
+                    }
+                    sort-descending(col) => {
+                        StokState.sort-active-stocks(col, false);
+                    }
                     columns: [
                         { title: "Provider" },
                         { title: "Kode Addon" },
@@ -456,6 +506,12 @@ export component MasterData inherits Rectangle {
                 table1 := CustomTableView {
                     width: 100%;
                     height: 100%;
+                    sort-ascending(col) => {
+                        StokState.sort-used-stocks(col, true);
+                    }
+                    sort-descending(col) => {
+                        StokState.sort-used-stocks(col, false);
+                    }
                     columns: [
                         { title: "Provider" },
                         { title: "Kode Addon" },
@@ -509,6 +565,9 @@ export component MasterData inherits Rectangle {
         open: StokState.form-panel-open;
         panel-width: 440px;
         title: StokState.edit-stock-id == -1 ? "Input Voucher" : "Edit Voucher";
+        opened => {
+            root.focus-voucher-form-field(1);
+        }
         close-requested => {
             StokState.form-panel-open = false;
         }
@@ -525,13 +584,21 @@ export component MasterData inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomComboBox {
+            provider-field := CustomComboBox {
                 row: 0;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 model: ["Byu", "Smartfren", "Telkomsel"];
                 current-index <=> StokState.form-provider-index;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.voucher-form-focus-index = 0;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-voucher-form-key(event)
+                }
             }
 
             Text {
@@ -545,13 +612,21 @@ export component MasterData inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            kode-addon-field := CustomTextInput {
                 row: 1;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 placeholder: "Kode Addon";
                 text <=> StokState.form-kode-addon;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.voucher-form-focus-index = 1;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-voucher-form-key(event)
+                }
             }
 
             Text {
@@ -565,7 +640,7 @@ export component MasterData inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            barcode-field := CustomTextInput {
                 row: 2;
                 col: 1;
                 width: 280px;
@@ -573,6 +648,14 @@ export component MasterData inherits Rectangle {
                 placeholder: "Barcode";
                 input-type: number;
                 text <=> StokState.form-barcode;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.voucher-form-focus-index = 2;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-voucher-form-key(event)
+                }
             }
 
             Text {
@@ -586,7 +669,7 @@ export component MasterData inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            serial-number-field := CustomTextInput {
                 row: 3;
                 col: 1;
                 width: 280px;
@@ -594,6 +677,14 @@ export component MasterData inherits Rectangle {
                 placeholder: "Serial Number";
                 input-type: number;
                 text <=> StokState.form-serial-number;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.voucher-form-focus-index = 3;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-voucher-form-key(event)
+                }
             }
 
             Text {
@@ -607,13 +698,21 @@ export component MasterData inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            expired-date-field := CustomTextInput {
                 row: 4;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 placeholder: "YYYY-MM-DD";
                 text <=> StokState.form-expired-date;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.voucher-form-focus-index = 4;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-voucher-form-key(event)
+                }
             }
         }
 
@@ -643,13 +742,7 @@ export component MasterData inherits Rectangle {
                     text: "Simpan";
                     height: 32px;
                     clicked => {
-                        StokState.save-stock(
-                            StokState.edit-stock-id,
-                            StokState.providers[StokState.form-provider-index + 1],  // +1 to skip "Semua"
-                            StokState.form-kode-addon,
-                            StokState.form-barcode,
-                            StokState.form-serial-number,
-                            StokState.form-expired-date);
+                        root.save-voucher-form();
                     }
                 }
             }

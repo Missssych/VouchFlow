@@ -23,6 +23,10 @@ export component CustomTextInput inherits Rectangle {
     callback accepted(text: string);
     callback edited(text: string);
     callback cleared();
+    callback key-pressed(event: KeyEvent) -> EventResult;
+    public function focus-input() {
+        text-input.focus();
+    }
     property <length> content-height: max(0px, root.height - root.content-padding * 2);
     background: Palette.bg_surface_2;
     border-color: Palette.border;
@@ -87,6 +91,9 @@ export component CustomTextInput inherits Rectangle {
                 }
                 edited => {
                     root.edited(self.text);
+                }
+                key-pressed(event) => {
+                    root.key-pressed(event)
                 }
             }
 

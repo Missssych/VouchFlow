@@ -3,6 +3,7 @@
 //! Extracted from main.rs to keep the entry point clean.
 //! Each sub-module registers callbacks for a specific Slint state.
 
+pub mod model_helpers;
 pub mod produk;
 pub mod stok;
 pub mod utility;

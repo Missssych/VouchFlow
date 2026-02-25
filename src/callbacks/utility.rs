@@ -2,7 +2,7 @@
 //!
 //! Registers all UtilityState callback handlers for the Slint UI.
 
-use slint::{ComponentHandle, Global};
+use slint::{ComponentHandle, Global, Model, ModelRc, VecModel};
 use crate::{AppWindow, UtilityState};
 
 /// Register all utility-related callbacks on the UI
@@ -270,6 +270,53 @@ pub fn register(
                 state.set_redeem_dialog_open(false);
                 state.set_redeem_dialog_countdown(5);
             }
+        });
+    }
+
+    // --- Sort bulk results ---
+    {
+        let ui_handle = ui.as_weak();
+        UtilityState::get(ui).on_sort_bulk_results(move |column_index, ascending| {
+            let column_index = column_index as usize;
+            let ui_handle_clone = ui_handle.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_handle_clone.upgrade() {
+                    let state = UtilityState::get(&ui);
+                    let model = state.get_bulk_results();
+                    
+                    let mut data: Vec<slint::ModelRc<slint::StandardListViewItem>> = Vec::new();
+                    let count = model.row_count();
+                    for i in 0..count {
+                        if let Some(row) = model.row_data(i) {
+                            data.push(row);
+                        }
+                    }
+                    
+                    if data.len() <= 1 {
+                        return; // Nothing to sort
+                    }
+                    
+                    data.sort_by(|a, b| {
+                        let text_a = a.row_data(column_index).map(|item| item.text.to_string()).unwrap_or_default();
+                        let text_b = b.row_data(column_index).map(|item| item.text.to_string()).unwrap_or_default();
+
+                        // Try parsing as float for numeric sorting
+                        let cmp = match (text_a.parse::<f64>(), text_b.parse::<f64>()) {
+                            (Ok(num_a), Ok(num_b)) => num_a.partial_cmp(&num_b).unwrap_or(std::cmp::Ordering::Equal),
+                            _ => text_a.cmp(&text_b),
+                        };
+
+                        if ascending {
+                            cmp
+                        } else {
+                            cmp.reverse()
+                        }
+                    });
+                    
+                    // Create a new VecModel and set it (simpler than modifying in-place for this case as it doesn't have IDs)
+                    state.set_bulk_results(slint::ModelRc::new(slint::VecModel::from(data)));
+                }
+            });
         });
     }
 }

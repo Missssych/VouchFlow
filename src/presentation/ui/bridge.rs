@@ -16,9 +16,6 @@ pub struct UiBridge {
     event_rx: broadcast::Receiver<DomainEvent>,
     // Batching configuration
     batch_interval_ms: u64,
-    // Pending updates
-    pending_logs: Vec<LogEntry>,
-    last_flush: std::time::Instant,
     // Command receiver
     command_rx: tokio::sync::mpsc::Receiver<BridgeCommand>,
 }
@@ -41,8 +38,6 @@ impl UiBridge {
             store,
             event_rx,
             batch_interval_ms: 100,
-            pending_logs: Vec::new(),
-            last_flush: std::time::Instant::now(),
             command_rx,
         }
     }
@@ -55,24 +50,31 @@ impl UiBridge {
     where
         F: Fn(UiEvent) + Send + Sync + 'static,
     {
-        tracing::info!("UI Bridge started");
+        tracing::info!("UI Bridge started with batch interval: {}ms", self.batch_interval_ms);
         
         let callback = Arc::new(ui_callback);
         
+        // Interval for rendering UI debouncing
+        let mut render_interval = tokio::time::interval(Duration::from_millis(self.batch_interval_ms));
+        render_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Keep track of which menu was last rendered to avoid duplicate renders
+        let mut needs_render = false;
+
         loop {
             tokio::select! {
-                // Receive domain event
+                // 1. Receive domain event (Updates Store ONLY, no UI render)
                 result = self.event_rx.recv() => {
                     match result {
                         Ok(event) => {
-                            // Update store
-                            self.store.handle_event(event.clone()).await;
-                            
-                            // Generate UI event based on active menu (gated rendering)
-                            self.handle_ui_update(&event, callback.clone()).await;
+                            self.store.handle_event(event).await;
+                            // `handle_event` calls `store.notify.notify_one()` inside CentralStore
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!("UI Bridge lagged {} events", n);
+                            tracing::warn!("UI Bridge event channel lagged {} events. But it's OK, state will be resync'd via store.", n);
+                            // We might have missed some events, but the store state might have been 
+                            // updated by another consumer or next events. Flag render anyway.
+                            needs_render = true;
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             break;
@@ -80,17 +82,12 @@ impl UiBridge {
                     }
                 }
                 
-                // Receive bridge command
+                // 2. Receive bridge command (Direct UI action / Menu Change)
                 cmd = self.command_rx.recv() => {
                     match cmd {
                         Some(BridgeCommand::SetMenu(menu)) => {
                             self.store.set_active_menu(menu).await;
-                            // Trigger immediate update for the new menu
-                            // TODO: Maybe republish state?
-                            if menu == MenuType::Logs {
-                                let all_logs = self.store.get_logs().await;
-                                callback(UiEvent::LogsUpdated(all_logs));
-                            }
+                            needs_render = true; // Force render on menu change
                         }
                         Some(BridgeCommand::RequestLogs) => {
                             let all_logs = self.store.get_logs().await;
@@ -100,9 +97,17 @@ impl UiBridge {
                     }
                 }
 
-                // Periodic flush for batched updates
-                _ = tokio::time::sleep(Duration::from_millis(self.batch_interval_ms)) => {
-                    self.flush_pending_updates(callback.clone()).await;
+                // 3. Listen to Central Store Notification
+                _ = self.store.notify.notified() => {
+                    needs_render = true;
+                }
+
+                // 4. Periodic Debouncer for UI Rendering
+                _ = render_interval.tick() => {
+                    if needs_render {
+                        self.flush_ui_state(callback.clone()).await;
+                        needs_render = false;
+                    }
                 }
             }
         }
@@ -110,94 +115,38 @@ impl UiBridge {
         tracing::info!("UI Bridge stopped");
     }
     
-    /// Handle UI update based on active menu
-    async fn handle_ui_update<F>(&mut self, event: &DomainEvent, callback: Arc<F>)
+    /// Extract entire state for the active menu and send it to Slint at once
+    async fn flush_ui_state<F>(&self, callback: Arc<F>)
     where
         F: Fn(UiEvent) + Send + Sync + 'static,
     {
         let active_menu = self.store.get_active_menu().await;
         
-        match event {
-            DomainEvent::TransactionUpdated { summary, .. } => {
-                // Dashboard always gets counter updates
-                if active_menu == MenuType::Dashboard {
-                    let counters = self.store.get_monitoring_counters().await;
-                    callback(UiEvent::RefreshMonitoring {
-                        total_transactions: counters.total_transactions,
-                        success_count: counters.success_count,
-                        failed_count: counters.failed_count,
-                        tps: counters.tps,
-                    });
-                }
-                
-                // Transaction list if on transaksi page
-                if active_menu == MenuType::Transaksi {
-                    let transactions = self.store.get_recent_transactions().await;
-                    callback(UiEvent::TransactionsUpdated(transactions));
-                }
+        match active_menu {
+            MenuType::Dashboard => {
+                let counters = self.store.get_monitoring_counters().await;
+                callback(UiEvent::RefreshMonitoring {
+                    total_transactions: counters.total_transactions,
+                    success_count: counters.success_count,
+                    failed_count: counters.failed_count,
+                    tps: counters.tps,
+                });
+                // Also send table data so dashboard auto-refreshes on new transactions
+                let transactions = self.store.get_recent_transactions().await;
+                callback(UiEvent::TransactionsUpdated(transactions));
             }
-            DomainEvent::LogAppended { entry, .. } => {
-                // Batch logs
-                self.pending_logs.push(entry.clone());
-                
-                // Only send if on logs page
-                if active_menu == MenuType::Logs && self.pending_logs.len() >= 10 {
-                    self.flush_pending_updates(callback).await;
-                }
+            MenuType::Logs => {
+                let all_logs = self.store.get_logs().await;
+                callback(UiEvent::LogsUpdated(all_logs));
             }
-            DomainEvent::LogsCleared { .. } => {
-                self.pending_logs.clear();
-                if active_menu == MenuType::Logs {
-                    let all_logs = self.store.get_logs().await;
-                    callback(UiEvent::LogsUpdated(all_logs));
-                }
+            MenuType::Settings => {
+                // Settings config can be loaded dynamically if needed
             }
-            DomainEvent::ConfigChanged { key, value, .. } => {
-                if active_menu == MenuType::Settings {
-                    callback(UiEvent::ConfigLoaded {
-                        key: key.clone(),
-                        value: value.clone(),
-                    });
-                }
-            }
-            // Product events trigger UI refresh on Produk page
-            DomainEvent::ProductCreated { .. } |
-            DomainEvent::ProductUpdated { .. } |
-            DomainEvent::ProductDeleted { .. } => {
-                // Product updates are handled via ProductService
-                // UI can subscribe to product changes when on Produk page
-                if active_menu == MenuType::Produk {
-                    // Products are refreshed from DB via ProductService
-                    // This event signals that a refresh is needed
-                    tracing::debug!("Product changed, UI should refresh");
-                }
-            }
-            // Stok Voucher events trigger UI refresh on MasterData page
-            DomainEvent::StokVoucherCreated { .. } |
-            DomainEvent::StokVoucherUpdated { .. } |
-            DomainEvent::StokVoucherDeleted { .. } |
-            DomainEvent::StokStatusChanged { .. } => {
-                if active_menu == MenuType::MasterData {
-                    tracing::debug!("Stok voucher changed, UI should refresh");
-                }
+            MenuType::Produk | MenuType::MasterData | MenuType::Utility | MenuType::Transaksi => {
+                // UI reads straight from DB when on these menus (via async commands)
+                // Nothing to push from CentralStore for now.
             }
         }
-    }
-    
-    /// Flush pending batched updates
-    async fn flush_pending_updates<F>(&mut self, callback: Arc<F>)
-    where
-        F: Fn(UiEvent) + Send + Sync + 'static,
-    {
-        if !self.pending_logs.is_empty() {
-            // Clear pending logs
-            self.pending_logs.clear();
-            
-            // Get all logs from store (which includes the new ones we just handled)
-            let all_logs = self.store.get_logs().await;
-            callback(UiEvent::LogsUpdated(all_logs));
-        }
-        self.last_flush = std::time::Instant::now();
     }
 }
 

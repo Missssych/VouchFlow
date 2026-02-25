@@ -231,14 +231,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if !state.get_auto_refresh() {
                                 return;
                             }
+                            // Only update counters — no full table reload
                             state.set_total_transactions(total_transactions as i32);
                             state.set_success_count(success_count as i32);
                             state.set_failed_count(failed_count as i32);
                             state.set_pending_count(
                                 total_transactions as i32 - success_count as i32 - failed_count as i32
                             );
-                            // Also trigger full refresh
-                            state.invoke_load_transactions();
                         }
                     });
                 }
@@ -247,6 +246,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(ui) = ui_weak.upgrade() {
                             let state = DashboardState::get(&ui);
                             if state.get_auto_refresh() {
+                                // Calls load_transactions which uses TableModel.set_all()
+                                // internally — reuses the persistent VecModel
                                 state.invoke_load_transactions();
                             }
                         }
@@ -532,10 +533,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 12. Run Slint event loop (blocks until UI closes)
     ui.run()?;
     
-    // Cleanup
-    tracing::info!("App-Voucher shutting down");
+    // ===== Graceful Shutdown =====
+    tracing::info!("App-Voucher shutting down...");
+
+    // Stop HTTP server if running
+    if server_running.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Ok(mut task_slot) = server_task.lock() {
+            if let Some(task) = task_slot.take() {
+                task.abort();
+            }
+        }
+        tracing::info!("HTTP server stopped");
+    }
+
+    // Drop command sender to signal orchestrator to stop
+    // (command_tx and command_tx_for_server are the only senders)
+    drop(command_tx);
+    drop(command_tx_for_server);
+
+    // Give background tasks a moment to drain pending DB writes
+    rt.block_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    });
+
+    // Drop DB command sender to signal DB writer to stop
+    drop(db_cmd_tx);
+
+    // Let DB writer finish remaining commands
+    rt.block_on(async {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    });
+    
+    tracing::info!("App-Voucher shutdown complete");
     
     Ok(())
 }
-
-

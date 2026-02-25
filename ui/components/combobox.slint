@@ -117,6 +117,7 @@ component ComboBoxBase {
     callback selected(current-value: string);
     callback show-popup();
     callback close-popup();
+    callback key-pressed(event: KeyEvent) -> EventResult;
     public function select(index: int) {
         if !root.enabled {
             return;
@@ -174,6 +175,9 @@ component ComboBoxBase {
             if (!self.enabled) {
                 return reject;
             }
+            if (root.key-pressed(event) == EventResult.accept) {
+                return accept;
+            }
             if (event.text == Key.UpArrow) {
                 root.move-selection-up();
                 return accept;
@@ -217,6 +221,7 @@ export component CustomComboBox {
     in-out property <int> current-index <=> base.current-index;
     in-out property <string> current-value <=> base.current-value;
     callback selected <=> base.selected;
+    callback key-pressed <=> base.key-pressed;
     property <length> popup-padding: 4px;
     property <int> visible-items: min(6, model.length);
     property <length> item-height: 32px;

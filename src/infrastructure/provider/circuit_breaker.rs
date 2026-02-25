@@ -4,7 +4,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
 /// Circuit breaker states
@@ -66,9 +66,9 @@ impl CircuitBreaker {
             CircuitState::Open => {
                 // Check if we should try half-open
                 let last_failure = self.last_failure_time.load(Ordering::Relaxed);
-                let now = Instant::now().elapsed().as_secs();
+                let now = Self::epoch_secs();
                 
-                if now - last_failure >= self.config.open_duration.as_secs() {
+                if now.saturating_sub(last_failure) >= self.config.open_duration.as_secs() {
                     // Transition to half-open
                     *self.state.write().await = CircuitState::HalfOpen;
                     self.success_count.store(0, Ordering::Relaxed);
@@ -113,7 +113,7 @@ impl CircuitBreaker {
                     // Open circuit
                     *self.state.write().await = CircuitState::Open;
                     self.last_failure_time.store(
-                        Instant::now().elapsed().as_secs(),
+                        Self::epoch_secs(),
                         Ordering::Relaxed,
                     );
                     tracing::warn!("Circuit breaker opened after {} failures", count);
@@ -123,7 +123,7 @@ impl CircuitBreaker {
                 // Go back to open
                 *self.state.write().await = CircuitState::Open;
                 self.last_failure_time.store(
-                    Instant::now().elapsed().as_secs(),
+                    Self::epoch_secs(),
                     Ordering::Relaxed,
                 );
                 tracing::warn!("Circuit breaker reopened from half-open");
@@ -135,6 +135,14 @@ impl CircuitBreaker {
     /// Get current state
     pub async fn state(&self) -> CircuitState {
         *self.state.read().await
+    }
+
+    /// Get current time as seconds since UNIX epoch
+    fn epoch_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
     }
 }
 

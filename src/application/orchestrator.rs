@@ -8,13 +8,15 @@ use crate::domain::{Command, DbCommand, TransactionResult, TransactionType, Doma
 use crate::infrastructure::channels::{CommandReceiver, DbCommandSender};
 use crate::infrastructure::provider::{ProviderClient, CircuitBreaker, CircuitBreakerConfig};
 use crate::infrastructure::database::Database;
-use crate::application::services;
 use crate::application::providers::ProviderRouter;
+use crate::application::services;
 use std::time::Instant;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// Transaction Orchestrator
 pub struct Orchestrator {
-    command_rx: CommandReceiver,
+    command_rx: Mutex<CommandReceiver>,
     db_cmd_tx: DbCommandSender,
     db: Database,
     provider: ProviderClient,
@@ -35,7 +37,7 @@ impl Orchestrator {
         let circuit_breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
         
         Self {
-            command_rx,
+            command_rx: Mutex::new(command_rx),
             db_cmd_tx,
             db,
             provider,
@@ -45,13 +47,29 @@ impl Orchestrator {
     }
     
     /// Run the orchestrator loop
-    pub async fn run(mut self) {
+    pub async fn run(self) {
         tracing::info!("Orchestrator started");
         
-        while let Some(cmd) = self.command_rx.recv().await {
-            let result = self.process_command(cmd).await;
-            if let Err(e) = result {
-                tracing::error!("Orchestrator error: {}", e);
+        let orchestrator = Arc::new(self);
+
+        loop {
+            let cmd_opt = {
+                let mut rx: tokio::sync::MutexGuard<'_, CommandReceiver> = orchestrator.command_rx.lock().await;
+                rx.recv().await
+            };
+
+            match cmd_opt {
+                Some(cmd) => {
+                    let orchestrator_clone = orchestrator.clone();
+                    
+                    tokio::spawn(async move {
+                        let result = orchestrator_clone.process_command(cmd).await;
+                        if let Err(e) = result {
+                            tracing::error!("Orchestrator error: {}", e);
+                        }
+                    });
+                }
+                None => break, // Channel closed
             }
         }
         
@@ -76,13 +94,13 @@ impl Orchestrator {
         
         if is_retry {
             // Retry from admin UI must re-run flow on the same transaction row.
-            self.db_cmd_tx.send(DbCommand::UpdateTransaction {
+            self.db_cmd_tx.send(crate::domain::DbCommand::UpdateTransaction {
                 tx_id: tx_id.clone(),
                 status: crate::domain::TransactionStatus::Processing,
                 sn: None,
                 result_code: None,
                 result_payload: None,
-            }).await.map_err(|e| DomainError::ChannelError(e.to_string()))?;
+            }).await.map_err(|e: tokio::sync::mpsc::error::SendError<DbCommand>| DomainError::ChannelError(e.to_string()))?;
 
             self.append_flow_log(
                 &tx_id,
@@ -111,7 +129,7 @@ impl Orchestrator {
             }
             
             // Insert transaction as PROCESSING
-            self.db_cmd_tx.send(DbCommand::InsertTransaction {
+            self.db_cmd_tx.send(crate::domain::DbCommand::InsertTransaction {
                 tx_id: tx_id.clone(),
                 request_id: cmd.request_id.clone(),
                 trace_id: cmd.trace_id.clone(),
@@ -121,7 +139,7 @@ impl Orchestrator {
                 harga: cmd.harga,
                 produk: cmd.produk.clone(),
                 nomor: cmd.nomor.clone(),
-            }).await.map_err(|e| DomainError::ChannelError(e.to_string()))?;
+            }).await.map_err(|e: tokio::sync::mpsc::error::SendError<DbCommand>| DomainError::ChannelError(e.to_string()))?;
 
             self.append_flow_log(
                 &tx_id,
@@ -238,11 +256,11 @@ impl Orchestrator {
     
     /// Check if request already exists (for idempotency)
     async fn is_duplicate_request(&self, request_id: &str) -> Result<bool, DomainError> {
-        self.db.with_reader(|conn| {
+        self.db.with_reader(|conn: &rusqlite::Connection| {
             let count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM transactions WHERE request_id = ?",
                 [request_id],
-                |row| row.get(0),
+                |row: &rusqlite::Row| row.get(0),
             ).unwrap_or(0);
             Ok(count > 0)
         }).await
@@ -250,12 +268,12 @@ impl Orchestrator {
     
     /// Get existing transaction result (for duplicate requests)
     async fn get_existing_result(&self, request_id: &str) -> Result<TransactionResult, DomainError> {
-        self.db.with_reader(|conn| {
+        self.db.with_reader(|conn: &rusqlite::Connection| {
             let (tx_id, status, result_code, result_payload): (String, String, Option<String>, Option<String>) = 
                 conn.query_row(
                     "SELECT tx_id, status, result_code, result_payload FROM transactions WHERE request_id = ?",
                     [request_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                    |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )?;
             
             let success = status == "SUCCESS";
@@ -273,11 +291,11 @@ impl Orchestrator {
     }
 
     async fn determine_attempt(&self, tx_id: &str, is_retry: bool) -> Result<i32, DomainError> {
-        let max_attempt = self.db.with_reader(|conn| {
+        let max_attempt = self.db.with_reader(|conn: &rusqlite::Connection| {
             let val: i32 = conn.query_row(
                 "SELECT COALESCE(MAX(attempt), 0) FROM transaction_logs WHERE tx_id = ?",
                 [tx_id],
-                |row| row.get(0),
+                |row: &rusqlite::Row| row.get(0),
             ).unwrap_or(0);
             Ok(val)
         }).await?;
@@ -303,7 +321,7 @@ impl Orchestrator {
         payload: Option<String>,
         latency_ms: Option<i64>,
     ) -> Result<(), DomainError> {
-        self.db_cmd_tx.send(DbCommand::AppendTransactionLog {
+        self.db_cmd_tx.send(crate::domain::DbCommand::AppendTransactionLog {
             tx_id: tx_id.to_string(),
             request_id: request_id.to_string(),
             trace_id: Some(trace_id.to_string()),
@@ -315,19 +333,9 @@ impl Orchestrator {
             message: message.to_string(),
             payload,
             latency_ms,
-        }).await.map_err(|e| DomainError::ChannelError(e.to_string()))
+        }).await.map_err(|e: tokio::sync::mpsc::error::SendError<DbCommand>| DomainError::ChannelError(e.to_string()))
     }
 }
 
-impl Clone for Orchestrator {
-    fn clone(&self) -> Self {
-        Self {
-            command_rx: todo!("CommandReceiver cannot be cloned"),
-            db_cmd_tx: self.db_cmd_tx.clone(),
-            db: self.db.clone(),
-            provider: self.provider.clone(),
-            provider_router: self.provider_router.clone(),
-            circuit_breaker: self.circuit_breaker.clone(),
-        }
-    }
-}
+// NOTE: Orchestrator is intentionally NOT Clone because CommandReceiver cannot be cloned.
+// The orchestrator owns the receiver end of the command bus exclusively.

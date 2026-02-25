@@ -254,10 +254,17 @@ pub async fn handle_transaksi(
         Some(response_tx),
     );
     
-    // Send to command bus
-    if let Err(e) = state.command_tx.send(command).await {
-        tracing::error!("Failed to send command: {}", e);
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    // Send to command bus (fail-fast backpressure per architecture Section 9.1)
+    match state.command_tx.try_send(command) {
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!("Command bus full - rejecting request (backpressure)");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Err(e) => {
+            tracing::error!("Failed to send command: {}", e);
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        Ok(()) => {}
     }
     
     // Wait for response with timeout

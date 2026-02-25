@@ -72,8 +72,10 @@ export global ProdukState {
     callback search-products(string, string, string);  // query, provider, kategori
     callback save-product(int, string, string, string, string, string, string);  // id, provider, nama, kode_produk, kategori, harga, addon
     callback delete-products([int]);
+    callback delete-products-by-range(int, int, [int]);  // start, end, all-ids
     callback load-product-for-edit(int);
     callback duplicate-product(int);
+    callback sort-products(int, bool); // column_index, ascending
 }
 
 // Master Data Stok Voucher state
@@ -141,6 +143,10 @@ export global StokState {
     callback delete-stocks-by-range(int, int, [int]);
     // args: start_index, end_index, all_ids, new_status
     callback change-status-by-range(int, int, [int], string);
+    
+    // Sort
+    callback sort-active-stocks(int, bool); // column_index, ascending
+    callback sort-used-stocks(int, bool);   // column_index, ascending
 }
 
 // Utility page state (Cek & Redeem Voucher)
@@ -181,6 +187,7 @@ export global UtilityState {
     callback check-voucher-bulk(string, string);    // barcodes (newline sep), provider
     callback redeem-voucher(string, string, string); // provider, msisdn, voucher_code
     callback close-redeem-dialog();  // close dialog (also called by auto-close timer)
+    callback sort-bulk-results(int, bool); // column_index, ascending
 }
 
 // Dashboard state (real-time transactions from Central Store)
@@ -248,6 +255,7 @@ export global DashboardState {
     callback mark-failed(int);          // tx_id → update FAILED + send webhook
     callback retry-transaction(int);    // tx_id → re-execute flow (same request_id) + send webhook
     callback load-stock-summary();      // for stock check button
+    callback sort-transactions(int, bool); // column_index, ascending
 }
 
 // Logs Terminal state (ring buffer display)

@@ -14,6 +14,8 @@ import { ProdukState } from "../state.slint";
 export component Produk inherits Rectangle {
     property <bool> is-edit-mode: false;
     private property <int> current-selected-id: -1;
+    private property <int> produk-form-focus-index: 0;
+    private property <int> produk-form-field-count: 6;
     
     // Debounce timer for search
     private property <duration> search-debounce: 300ms;
@@ -26,6 +28,52 @@ export component Produk inherits Rectangle {
         ProdukState.form-harga = "";
         ProdukState.form-addon-index = -1;
         root.is-edit-mode = false;
+    }
+    function save-produk-form() {
+        ProdukState.save-product(
+            ProdukState.edit-product-id,
+            root.get-selected-provider(),
+            ProdukState.form-nama-produk,
+            ProdukState.form-kode-produk,
+            root.get-selected-kategori(),
+            ProdukState.form-harga,
+            root.get-selected-addon());
+        ProdukState.form-panel-open = false;
+    }
+    function focus-produk-form-field(index: int) {
+        let target = min(max(index, 0), root.produk-form-field-count - 1);
+        root.produk-form-focus-index = target;
+        if (target == 0) {
+            provider-field.focus();
+        } else if (target == 1) {
+            nama-produk-field.focus-input();
+        } else if (target == 2) {
+            kode-produk-field.focus-input();
+        } else if (target == 3) {
+            kategori-field.focus();
+        } else if (target == 4) {
+            harga-field.focus-input();
+        } else {
+            addon-field.focus();
+        }
+    }
+    function move-produk-form-focus(delta: int) {
+        root.focus-produk-form-field(root.produk-form-focus-index + delta);
+    }
+    function handle-produk-form-key(event: KeyEvent) -> EventResult {
+        if (event.text == Key.UpArrow) {
+            root.move-produk-form-focus(-1);
+            return accept;
+        }
+        if (event.text == Key.DownArrow) {
+            root.move-produk-form-focus(1);
+            return accept;
+        }
+        if (event.text == Key.Return || event.text == "\n" || event.text == "\u{000d}") {
+            root.save-produk-form();
+            return accept;
+        }
+        return reject;
     }
     function get-selected-provider() -> string {
         if (ProdukState.form-provider-index == 0) {
@@ -153,6 +201,13 @@ export component Produk inherits Rectangle {
             table := CustomTableView {
                 width: 100%;
                 height: 100%;
+                sort-ascending(col) => {
+                    ProdukState.sort-products(col, true);
+                }
+                sort-descending(col) => {
+                    ProdukState.sort-products(col, false);
+                }
+
                 columns: [
                     { title: "Provider" },
                     { title: "Nama Produk", width: 250px },
@@ -179,8 +234,13 @@ export component Produk inherits Rectangle {
                             ProdukState.form-panel-open = true;
                         }
                     } else if (action == "delete") {
-                        // Collect selected IDs
-                        ProdukState.delete-products(ProdukState.selected-product-ids);
+                        if (table.has-selection) {
+                            // Range selection: pass start/end indices + full ID array
+                            ProdukState.delete-products-by-range(table.selection-low, table.selection-high, ProdukState.selected-product-ids);
+                        } else if (table.current-row >= 0 && table.current-row < ProdukState.selected-product-ids.length) {
+                            // Single row selected
+                            ProdukState.delete-products([ProdukState.selected-product-ids[table.current-row]]);
+                        }
                     }
                 }
             }
@@ -191,6 +251,9 @@ export component Produk inherits Rectangle {
         open: ProdukState.form-panel-open;
         panel-width: 440px;
         title: root.is-edit-mode ? "Edit Produk" : "Tambah Produk";
+        opened => {
+            root.focus-produk-form-field(1);
+        }
         close-requested => {
             ProdukState.form-panel-open = false;
         }
@@ -209,13 +272,21 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomComboBox {
+            provider-field := CustomComboBox {
                 row: 0;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 model: ["Byu", "Smartfren", "Telkomsel"];
                 current-index <=> ProdukState.form-provider-index;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 0;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
 
             Text {
@@ -229,13 +300,21 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            nama-produk-field := CustomTextInput {
                 row: 1;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 placeholder: "Nama Produk";
                 text <=> ProdukState.form-nama-produk;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 1;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
 
             Text {
@@ -249,13 +328,21 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            kode-produk-field := CustomTextInput {
                 row: 2;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 placeholder: "Kode Produk (unique)";
                 text <=> ProdukState.form-kode-produk;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 2;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
 
             Text {
@@ -269,13 +356,21 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomComboBox {
+            kategori-field := CustomComboBox {
                 row: 3;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 model: ProdukState.kategori-options;
                 current-index <=> ProdukState.form-kategori-index;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 3;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
 
             Text {
@@ -289,7 +384,7 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomTextInput {
+            harga-field := CustomTextInput {
                 row: 4;
                 col: 1;
                 width: 280px;
@@ -297,6 +392,14 @@ export component Produk inherits Rectangle {
                 placeholder: "Harga";
                 text <=> ProdukState.form-harga;
                 input-type: InputType.number;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 4;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
 
             Text {
@@ -310,13 +413,21 @@ export component Produk inherits Rectangle {
                 vertical-alignment: center;
             }
 
-            CustomComboBox {
+            addon-field := CustomComboBox {
                 row: 5;
                 col: 1;
                 width: 280px;
                 height: 32px;
                 model: ProdukState.addon-options;
                 current-index <=> ProdukState.form-addon-index;
+                changed has-focus => {
+                    if (self.has-focus) {
+                        root.produk-form-focus-index = 5;
+                    }
+                }
+                key-pressed(event) => {
+                    root.handle-produk-form-key(event)
+                }
             }
         }
 
@@ -335,16 +446,7 @@ export component Produk inherits Rectangle {
                 text: "Simpan";
                 height: 32px;
                 clicked => {
-                    // Save product via backend
-                    ProdukState.save-product(
-                        ProdukState.edit-product-id,
-                        root.get-selected-provider(),
-                        ProdukState.form-nama-produk,
-                        ProdukState.form-kode-produk,
-                        root.get-selected-kategori(),
-                        ProdukState.form-harga,
-                        root.get-selected-addon());
-                    ProdukState.form-panel-open = false;
+                    root.save-produk-form();
                 }
             }
         }

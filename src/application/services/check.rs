@@ -4,6 +4,7 @@ use crate::domain::{DbCommand, TransactionResult, TransactionStatus};
 use crate::application::providers::ProviderRouter;
 use crate::infrastructure::provider::CircuitBreaker;
 use crate::infrastructure::channels::DbCommandSender;
+use super::append_flow_log;
 use std::time::Instant;
 
 /// Execute check voucher transaction
@@ -207,33 +208,4 @@ pub async fn execute_check(
             )
         }
     }
-}
-
-async fn append_flow_log(
-    db_cmd_tx: &DbCommandSender,
-    tx_id: &str,
-    request_id: &str,
-    trace_id: &str,
-    kategori: &str,
-    attempt: i32,
-    stage: &str,
-    level: &str,
-    status: Option<&str>,
-    message: &str,
-    payload: Option<String>,
-    latency_ms: Option<i64>,
-) {
-    let _ = db_cmd_tx.send(DbCommand::AppendTransactionLog {
-        tx_id: tx_id.to_string(),
-        request_id: request_id.to_string(),
-        trace_id: Some(trace_id.to_string()),
-        kategori: kategori.to_string(),
-        attempt,
-        stage: stage.to_string(),
-        level: level.to_string(),
-        status: status.map(|s| s.to_string()),
-        message: message.to_string(),
-        payload,
-        latency_ms,
-    }).await;
 }

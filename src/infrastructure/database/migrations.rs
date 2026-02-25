@@ -40,6 +40,14 @@ pub fn run_all(conn: &Connection) -> Result<(), DomainError> {
         mark_migration_applied(conn, tx_log_migration)?;
         tracing::info!("Applied migration: {}", tx_log_migration);
     }
+
+    // Ensure performant indexes for stock date-range queries.
+    let stok_index_migration = "stok_voucher_indexes_v2";
+    if !is_migration_applied(conn, stok_index_migration)? {
+        migrate_stok_voucher_indexes_v2(conn)?;
+        mark_migration_applied(conn, stok_index_migration)?;
+        tracing::info!("Applied migration: {}", stok_index_migration);
+    }
     
     // Insert default configurations if not exist
     insert_default_configs(conn)?;
@@ -226,4 +234,13 @@ fn migrate_transaction_logs_v2(conn: &Connection) -> Result<(), DomainError> {
 
     conn.execute("DROP TABLE IF EXISTS transaction_logs_legacy", [])?;
     Ok(())
+}
+
+fn migrate_stok_voucher_indexes_v2(conn: &Connection) -> Result<(), DomainError> {
+    execute_sql_batch(
+        conn,
+        "CREATE INDEX IF NOT EXISTS idx_stok_used_at ON stok_voucher(used_at);
+         CREATE INDEX IF NOT EXISTS idx_stok_status_created_at ON stok_voucher(status, created_at DESC);
+         CREATE INDEX IF NOT EXISTS idx_stok_status_used_at ON stok_voucher(status, used_at DESC);",
+    )
 }

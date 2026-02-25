@@ -1,153 +1,72 @@
 import { Palette } from "../palette.slint";
-import { CustomButton } from "button.slint";
-import { XIcon } from "@lucide";
+import { Button } from "std-widgets.slint";
 
-export component ConfirmDialog inherits Rectangle {
+export component ConfirmDialog inherits Dialog {
     in property <bool> open: false;
-    in property <string> title: "Konfirmasi";
     in property <string> message: "Apakah Anda yakin?";
     in property <string> confirm-text: "Ya";
     in property <string> cancel-text: "Batal";
     callback confirmed();
     callback cancelled();
-    
-    // Visible only when open
     visible: open;
-    
-    // Full screen overlay
-    background: #00000080;
-    
-    // Block interaction with background
-    TouchArea {
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+        HorizontalLayout {
+            alignment: start;
+            spacing: 12px;
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                background: #fef3c7;
+                border-radius: 8px;
+                Text {
+                    text: "⚠";
+                    font-size: 22px;
+                    color: #d97706;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: root.title;
+                font-size: 18px;
+                font-weight: 600;
+                color: Palette.text_primary;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: root.message;
+            font-size: 14px;
+            color: Palette.text_secondary;
+            wrap: word-wrap;
+            horizontal-alignment: left;
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
+    }
+
+    Button {
+        text: root.cancel-text;
+        dialog-button-role: reject;
         clicked => {
             root.cancelled();
         }
     }
-    
-    // Dialog container - centered
-    VerticalLayout {
-        alignment: center;
-        HorizontalLayout {
-            alignment: center;
-            
-            // Dialog box
-            Rectangle {
-                width: 400px;
-                height: 200px;
-                background: Palette.bg_surface_1;
-                border-radius: 12px;
-                drop-shadow-blur: 20px;
-                drop-shadow-color: #00000040;
-                drop-shadow-offset-y: 4px;
-                
-                // Prevent click-through to overlay
-                TouchArea { }
 
-                VerticalLayout {
-                    padding: 20px;
-                    spacing: 16px;
-                    
-                    // Header with icon and title
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 12px;
-                        
-                        // Warning icon
-                        Rectangle {
-                            width: 40px;
-                            height: 40px;
-                            background: #fef3c7;
-                            border-radius: 8px;
-                            Text {
-                                text: "⚠";
-                                font-size: 22px;
-                                color: #d97706;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                            }
-                        }
-                        
-                        // Title
-                        Text {
-                            text: root.title;
-                            font-size: 18px;
-                            font-weight: 600;
-                            color: Palette.text_primary;
-                            vertical-alignment: center;
-                        }
-                    }
-                    
-                    // Message
-                    Text {
-                        text: root.message;
-                        font-size: 14px;
-                        color: Palette.text_secondary;
-                        wrap: word-wrap;
-                        horizontal-alignment: left;
-                    }
-                    
-                    // Spacer
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                    
-                    // Buttons
-                    HorizontalLayout {
-                        alignment: end;
-                        spacing: 12px;
-                        
-                        // Cancel button
-                        cancel-btn := Rectangle {
-                            width: 100px;
-                            height: 36px;
-                            background: cancel-touch.has-hover ? Palette.bg_surface_2 : transparent;
-                            border-radius: 6px;
-                            border-width: 1px;
-                            border-color: Palette.border;
-                            animate background { duration: 150ms; }
-                            Text {
-                                text: root.cancel-text;
-                                font-size: 14px;
-                                font-weight: 500;
-                                color: Palette.text_primary;
-                                vertical-alignment: center;
-                                horizontal-alignment: center;
-                            }
-
-                            cancel-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.cancelled();
-                                }
-                            }
-                        }
-                        
-                        // Confirm button (danger style)
-                        confirm-btn := Rectangle {
-                            width: 100px;
-                            height: 36px;
-                            background: confirm-touch.has-hover ? #dc2626 : #ef4444;
-                            border-radius: 6px;
-                            animate background { duration: 150ms; }
-                            Text {
-                                text: root.confirm-text;
-                                font-size: 14px;
-                                font-weight: 500;
-                                color: white;
-                                vertical-alignment: center;
-                                horizontal-alignment: center;
-                            }
-
-                            confirm-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.confirmed();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    Button {
+        text: root.confirm-text;
+        dialog-button-role: accept;
+        // In original design, confirm button had a danger style (red).
+        // Standard Button does not support background color customization easily, 
+        // but we can just use the default dialog button styling as requested.
+        clicked => {
+            root.confirmed();
         }
     }
 }

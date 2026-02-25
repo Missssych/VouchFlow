@@ -86,6 +86,8 @@ pub struct CentralStore {
     pub active_menu: Arc<RwLock<MenuType>>,
     /// Last event sequence number
     pub last_seq: Arc<AtomicU64>,
+    /// Global notification for UI updates
+    pub notify: Arc<tokio::sync::Notify>,
     /// Transaction count limits
     max_transactions: usize,
     /// Log buffer size
@@ -107,6 +109,7 @@ impl CentralStore {
             configs: Arc::new(RwLock::new(HashMap::new())),
             active_menu: Arc::new(RwLock::new(MenuType::default())),
             last_seq: Arc::new(AtomicU64::new(0)),
+            notify: Arc::new(tokio::sync::Notify::new()),
             max_transactions,
             log_buffer_size,
         }
@@ -264,13 +267,24 @@ impl CentralStore {
                 }
                 
                 // Update counters
+                // Only increment total for initial status (Processing/Pending),
+                // not for status updates (Success/Failed/Expired)
                 let mut counters = self.monitoring_counters.write().await;
-                counters.total_transactions += 1;
                 match status {
-                    crate::domain::TransactionStatus::Success => counters.success_count += 1,
-                    crate::domain::TransactionStatus::Failed => counters.failed_count += 1,
-                    crate::domain::TransactionStatus::Expired => counters.failed_count += 1,
-                    _ => counters.pending_count += 1,
+                    crate::domain::TransactionStatus::Processing |
+                    crate::domain::TransactionStatus::Pending => {
+                        counters.total_transactions += 1;
+                        counters.pending_count += 1;
+                    }
+                    crate::domain::TransactionStatus::Success => {
+                        counters.success_count += 1;
+                        counters.pending_count = counters.pending_count.saturating_sub(1);
+                    }
+                    crate::domain::TransactionStatus::Failed |
+                    crate::domain::TransactionStatus::Expired => {
+                        counters.failed_count += 1;
+                        counters.pending_count = counters.pending_count.saturating_sub(1);
+                    }
                 }
                 counters.last_updated = Some(Utc::now());
             }
@@ -314,6 +328,9 @@ impl CentralStore {
                 // This allows UI to refresh when needed
             }
         }
+        
+        // Notify listeners (UI bridge) that state has changed
+        self.notify.notify_one();
     }
     
     /// Set active menu
@@ -362,6 +379,7 @@ impl Clone for CentralStore {
             configs: Arc::clone(&self.configs),
             active_menu: Arc::clone(&self.active_menu),
             last_seq: Arc::clone(&self.last_seq),
+            notify: Arc::clone(&self.notify),
             max_transactions: self.max_transactions,
             log_buffer_size: self.log_buffer_size,
         }

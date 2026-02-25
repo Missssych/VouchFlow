@@ -6,6 +6,13 @@ use crate::domain::{StokVoucherSummary, StokAddonSummary, DomainError};
 use crate::infrastructure::database::Database;
 use rusqlite::Connection;
 
+fn next_day_ymd(date: &str) -> Option<String> {
+    chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.succ_opt())
+        .map(|d| d.format("%Y-%m-%d").to_string())
+}
+
 /// Get active stock vouchers (status = ACTIVE)
 pub async fn get_active_stocks(
     db: &Database,
@@ -68,13 +75,19 @@ pub async fn get_used_stocks(
         }
         
         if let Some(from) = date_from.filter(|s| !s.is_empty()) {
-            conditions.push("DATE(used_at) >= ?".to_string());
+            conditions.push("used_at >= ?".to_string());
             params.push(from.to_string());
         }
         
         if let Some(to) = date_to.filter(|s| !s.is_empty()) {
-            conditions.push("DATE(used_at) <= ?".to_string());
-            params.push(to.to_string());
+            if let Some(next_day) = next_day_ymd(to) {
+                conditions.push("used_at < ?".to_string());
+                params.push(next_day);
+            } else {
+                // Fallback for invalid date input.
+                conditions.push("used_at <= ?".to_string());
+                params.push(to.to_string());
+            }
         }
         
         if let Some(q) = search.filter(|s| !s.is_empty()) {

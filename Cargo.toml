@@ -1,13 +1,17 @@
 [package]
-name = "App-Voucher"
+name = "vouchflow"
 version = "0.1.0"
 edition = "2024"
 build = "build.rs"
 
+[lib]
+name = "vouchflow"
+path = "src/lib.rs"
+
 [dependencies]
 # UI
-slint = { version = "1.15", features = ["renderer-winit-skia"] }
-i-slint-backend-winit = "1.15"
+slint = { version = "1.15.1", features = ["renderer-winit-skia"] }
+i-slint-backend-winit = "1.15.1"
 
 # Async Runtime
 tokio = { version = "1.43", features = ["full"] }
@@ -49,7 +53,8 @@ base64 = "0.22"
 # Async trait
 async-trait = "0.1"
 
+
 [build-dependencies]
 lucide-slint = "0.1.4"
-slint-build = "1.15"
+slint-build = "1.15.1"
 winres = "0.1"

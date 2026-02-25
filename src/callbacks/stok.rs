@@ -5,6 +5,7 @@ use slint::{ComponentHandle, Global, Model};
 use vouchflow::infrastructure::channels::DbCommandSender;
 use vouchflow::infrastructure::database::Database;
 use crate::{AppWindow, StokState};
+use super::model_helpers::{with_table, TableId};
 
 /// Register all stok-related callbacks on the UI
 pub fn register(
@@ -68,8 +69,9 @@ pub fn register(
                                     slint::ModelRc::new(slint::VecModel::from(items))
                                 }).collect();
                                 let state = StokState::get(&ui);
-                                state.set_active_stocks(slint::ModelRc::new(slint::VecModel::from(rows)));
-                                state.set_active_stock_ids(slint::ModelRc::new(slint::VecModel::from(ids)));
+                                let (rows_model, ids_model) = with_table(TableId::StokActive, |m| m.set_all(rows, ids));
+                                state.set_active_stocks(rows_model);
+                                state.set_active_stock_ids(ids_model);
                             }
                         });
                     }
@@ -130,8 +132,9 @@ pub fn register(
                                     slint::ModelRc::new(slint::VecModel::from(items))
                                 }).collect();
                                 let state = StokState::get(&ui);
-                                state.set_used_stocks(slint::ModelRc::new(slint::VecModel::from(rows)));
-                                state.set_used_stock_ids(slint::ModelRc::new(slint::VecModel::from(ids)));
+                                let (rows_model, ids_model) = with_table(TableId::StokUsed, |m| m.set_all(rows, ids));
+                                state.set_used_stocks(rows_model);
+                                state.set_used_stock_ids(ids_model);
                             }
                         });
                     }
@@ -150,19 +153,32 @@ pub fn register(
             tracing::info!("Saving stock: id={}, provider={}, kode_addon={}", id, provider, kode_addon);
             let ui_weak = ui_handle.clone();
             let cmd_tx = tx.clone();
-            let provider = provider.to_string();
-            let kode_addon = kode_addon.to_string();
-            let barcode = barcode.to_string();
-            let serial = serial.to_string();
-            let expired = if expired.is_empty() { None } else { Some(expired.to_string()) };
+            let provider_str = provider.to_string();
+            let kode_addon_str = kode_addon.to_string();
+            let barcode_str = barcode.to_string();
+            let serial_str = serial.to_string();
+            let expired_str = expired.to_string();
+            let expired_opt = if expired.is_empty() { None } else { Some(expired.to_string()) };
+            let is_create = id < 0;
+            let row_id = id;
+
             rth.spawn(async move {
-                let cmd = if id < 0 {
+                let cmd = if is_create {
                     vouchflow::domain::DbCommand::CreateStokVoucher {
-                        provider, kode_addon, barcode, serial_number: serial, expired_date: expired
+                        provider: provider_str.clone(),
+                        kode_addon: kode_addon_str.clone(),
+                        barcode: barcode_str.clone(),
+                        serial_number: serial_str.clone(),
+                        expired_date: expired_opt,
                     }
                 } else {
                     vouchflow::domain::DbCommand::UpdateStokVoucher {
-                        id: id as i64, provider, kode_addon, barcode, serial_number: serial, expired_date: expired
+                        id: row_id as i64,
+                        provider: provider_str.clone(),
+                        kode_addon: kode_addon_str.clone(),
+                        barcode: barcode_str.clone(),
+                        serial_number: serial_str.clone(),
+                        expired_date: expired_opt,
                     }
                 };
                 if let Err(e) = cmd_tx.send(cmd).await {
@@ -170,7 +186,32 @@ pub fn register(
                 } else {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak.upgrade() {
-                            StokState::get(&ui).invoke_load_active_stocks();
+                            let format_date = |s: &str| -> String {
+                                if s.len() >= 16 { s[0..16].replace("T", " ") } else { s.to_string() }
+                            };
+                            let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+                            let row = slint::ModelRc::new(slint::VecModel::from(vec![
+                                slint::StandardListViewItem::from(provider_str.as_str()),
+                                slint::StandardListViewItem::from(kode_addon_str.as_str()),
+                                slint::StandardListViewItem::from(barcode_str.as_str()),
+                                slint::StandardListViewItem::from(serial_str.as_str()),
+                                slint::StandardListViewItem::from(format_date(&expired_str).as_str()),
+                                slint::StandardListViewItem::from("ACTIVE"),
+                                slint::StandardListViewItem::from(now.as_str()),
+                            ]));
+
+                            if is_create {
+                                with_table(TableId::StokActive, |m| m.push_front(-1, row));
+                                // Reload after delay to get real DB ID
+                                let ui_weak2 = ui.as_weak();
+                                slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
+                                    if let Some(ui) = ui_weak2.upgrade() {
+                                        StokState::get(&ui).invoke_load_active_stocks();
+                                    }
+                                });
+                            } else {
+                                with_table(TableId::StokActive, |m| m.update_row(row_id, row));
+                            }
                         }
                     });
                 }
@@ -185,6 +226,7 @@ pub fn register(
         let rth = rt_handle.clone();
         StokState::get(ui).on_delete_stocks(move |ids| {
             let id_vec: Vec<i64> = ids.iter().map(|id| id as i64).collect();
+            let id_i32s: Vec<i32> = ids.iter().collect();
             tracing::info!("Deleting stocks: {:?}", id_vec);
             let ui_weak = ui_handle.clone();
             let cmd_tx = tx.clone();
@@ -194,8 +236,9 @@ pub fn register(
                     tracing::error!("Failed to delete stocks: {}", e);
                 } else {
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            StokState::get(&ui).invoke_load_active_stocks();
+                        if let Some(_ui) = ui_weak.upgrade() {
+                            // Remove rows directly — no DB re-query
+                            with_table(TableId::StokActive, |m| m.remove_by_ids(&id_i32s));
                         }
                     });
                 }
@@ -210,18 +253,25 @@ pub fn register(
         let rth = rt_handle.clone();
         StokState::get(ui).on_change_status(move |ids, new_status| {
             let id_vec: Vec<i64> = ids.iter().map(|id| id as i64).collect();
+            let id_i32s: Vec<i32> = ids.iter().collect();
             let status = new_status.to_string();
             tracing::info!("Changing status to {} for stocks: {:?}", status, id_vec);
             let ui_weak = ui_handle.clone();
             let cmd_tx = tx.clone();
+            let status_clone = status.clone();
             rth.spawn(async move {
                 let cmd = vouchflow::domain::DbCommand::ChangeStokStatus { ids: id_vec, new_status: status };
                 if let Err(e) = cmd_tx.send(cmd).await {
                     tracing::error!("Failed to change status: {}", e);
                 } else {
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            StokState::get(&ui).invoke_load_active_stocks();
+                        if let Some(_ui) = ui_weak.upgrade() {
+                            // Remove from current tab — items moved to the other tab
+                            if status_clone == "USED" {
+                                with_table(TableId::StokActive, |m| m.remove_by_ids(&id_i32s));
+                            } else {
+                                with_table(TableId::StokUsed, |m| m.remove_by_ids(&id_i32s));
+                            }
                         }
                     });
                 }
@@ -298,17 +348,18 @@ pub fn register(
 
     // --- Range-based delete ---
     {
-        let ui_handle = ui.as_weak();
         let tx = db_cmd_tx_clone.clone();
         StokState::get(ui).on_delete_stocks_by_range(move |start, end, all_ids| {
             let start = start as usize;
             let end = end as usize;
             let mut ids = Vec::new();
+            let mut id_i32s = Vec::new();
             let row_count = all_ids.row_count();
             if start <= end && end < row_count {
                 for i in start..=end {
                     if let Some(id) = all_ids.row_data(i) {
                         ids.push(id as i64);
+                        id_i32s.push(id);
                     }
                 }
             }
@@ -316,12 +367,8 @@ pub fn register(
             if !ids.is_empty() {
                 match tx.try_send(vouchflow::domain::DbCommand::DeleteStokVouchers { ids }) {
                     Ok(()) => {
-                        let ui_weak = ui_handle.clone();
-                        let _ = slint::Timer::single_shot(std::time::Duration::from_millis(200), move || {
-                            if let Some(ui) = ui_weak.upgrade() {
-                                StokState::get(&ui).invoke_load_active_stocks();
-                            }
-                        });
+                        // Remove rows directly — no timer delay or DB re-query
+                        with_table(TableId::StokActive, |m| m.remove_by_ids(&id_i32s));
                     }
                     Err(e) => tracing::error!("Failed to send delete command: {}", e),
                 }
@@ -331,30 +378,32 @@ pub fn register(
 
     // --- Range-based change status ---
     {
-        let ui_handle = ui.as_weak();
         let tx = db_cmd_tx_clone.clone();
         StokState::get(ui).on_change_status_by_range(move |start, end, all_ids, new_status| {
             let start = start as usize;
             let end = end as usize;
             let mut ids = Vec::new();
+            let mut id_i32s = Vec::new();
             let row_count = all_ids.row_count();
             if start <= end && end < row_count {
                 for i in start..=end {
                     if let Some(id) = all_ids.row_data(i) {
                         ids.push(id as i64);
+                        id_i32s.push(id);
                     }
                 }
             }
             tracing::info!("Changing status to {} for stocks range {}-{} ({} items): {:?}", new_status, start, end, ids.len(), ids);
             if !ids.is_empty() {
+                let new_status_str = new_status.to_string();
                 match tx.try_send(vouchflow::domain::DbCommand::ChangeStokStatus { ids, new_status: new_status.to_string() }) {
                     Ok(()) => {
-                        let ui_weak = ui_handle.clone();
-                        let _ = slint::Timer::single_shot(std::time::Duration::from_millis(200), move || {
-                            if let Some(ui) = ui_weak.upgrade() {
-                                StokState::get(&ui).invoke_load_active_stocks();
-                            }
-                        });
+                        // Remove from current tab — items moved to other tab
+                        if new_status_str == "USED" {
+                            with_table(TableId::StokActive, |m| m.remove_by_ids(&id_i32s));
+                        } else {
+                            with_table(TableId::StokUsed, |m| m.remove_by_ids(&id_i32s));
+                        }
                     }
                     Err(e) => tracing::error!("Failed to send change status command: {}", e),
                 }
@@ -488,6 +537,24 @@ pub fn register(
                         }
                     }
                 });
+            });
+        });
+    }
+
+    // --- Sort active stocks ---
+    {
+        StokState::get(ui).on_sort_active_stocks(move |column_index, ascending| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with_table(TableId::StokActive, |m| m.sort_by_column(column_index as usize, ascending));
+            });
+        });
+    }
+
+    // --- Sort used stocks ---
+    {
+        StokState::get(ui).on_sort_used_stocks(move |column_index, ascending| {
+            let _ = slint::invoke_from_event_loop(move || {
+                with_table(TableId::StokUsed, |m| m.sort_by_column(column_index as usize, ascending));
             });
         });
     }

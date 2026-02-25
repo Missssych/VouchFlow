@@ -104,6 +104,9 @@ CREATE INDEX IF NOT EXISTS idx_stok_status ON stok_voucher(status);
 CREATE INDEX IF NOT EXISTS idx_stok_serial ON stok_voucher(serial_number);
 CREATE INDEX IF NOT EXISTS idx_stok_kode_addon ON stok_voucher(kode_addon);
 CREATE INDEX IF NOT EXISTS idx_stok_created_at ON stok_voucher(created_at);
+CREATE INDEX IF NOT EXISTS idx_stok_used_at ON stok_voucher(used_at);
+CREATE INDEX IF NOT EXISTS idx_stok_status_created_at ON stok_voucher(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stok_status_used_at ON stok_voucher(status, used_at DESC);
 "#;
 
 /// SQL for creating transaction_logs table (flow logs per transaction)
