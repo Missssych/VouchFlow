@@ -2,12 +2,45 @@
 //!
 //! Registers all DashboardState callback handlers for the Slint UI.
 
+use super::model_helpers::{TableId, with_table};
+use crate::{AppWindow, DashboardState, StokState};
 use slint::{ComponentHandle, Global, Model};
 use vouchflow::domain::DomainError;
 use vouchflow::infrastructure::channels::{CommandSender, DbCommandSender};
 use vouchflow::infrastructure::database::Database;
-use crate::{AppWindow, DashboardState, StokState};
-use super::model_helpers::{with_table, TableId};
+
+fn format_timestamp_to_local_dashboard(s: &str) -> String {
+    let ts = s.trim();
+    if ts.is_empty() {
+        return String::new();
+    }
+
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+        return dt
+            .with_timezone(&chrono::Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+    }
+
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(ts, fmt) {
+            let utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                naive,
+                chrono::Utc,
+            );
+            return utc
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string();
+        }
+    }
+
+    if ts.len() >= 19 {
+        ts[0..19].replace("T", " ")
+    } else {
+        ts.replace("T", " ")
+    }
+}
 
 /// Set current date on DashboardState and StokState date pickers
 pub fn init_dates(ui: &AppWindow) {
@@ -61,9 +94,7 @@ pub fn register(
                     let tx = conn.query_row(
                         "SELECT tx_id, request_id, provider, kategori, harga, produk, nomor, sn,
                                 status, result_code, result_payload,
-                                COALESCE(strftime('%Y-%m-%d %H:%M:%S', replace(created_at, 'T', ' ')),
-                                         substr(replace(created_at, 'T', ' '), 1, 19),
-                                         created_at)
+                                COALESCE(created_at, '')
                          FROM transactions WHERE rowid = ?",
                         [tx_rowid],
                         |row| Ok((
@@ -82,10 +113,7 @@ pub fn register(
                         ))
                     )?;
                     let logs = conn.prepare(
-                        "SELECT attempt, seq, level, stage, COALESCE(status, ''), message, COALESCE(payload, ''),
-                                COALESCE(strftime('%Y-%m-%d %H:%M:%S', replace(created_at, 'T', ' ')),
-                                         substr(replace(created_at, 'T', ' '), 1, 19),
-                                         created_at),
+                        "SELECT attempt, seq, level, stage, COALESCE(status, ''), message, COALESCE(payload, ''), COALESCE(created_at, ''),
                                 latency_ms
                          FROM transaction_logs
                          WHERE tx_id = ?
@@ -118,11 +146,14 @@ pub fn register(
                                 state.set_detail_status(tx.8.as_str().into());
                                 state.set_detail_result_code(tx.9.as_deref().unwrap_or("").into());
                                 state.set_detail_result_payload(tx.10.as_deref().unwrap_or("").into());
-                                state.set_detail_waktu(tx.11.as_str().into());
+                                state.set_detail_waktu(
+                                    format_timestamp_to_local_dashboard(&tx.11).into(),
+                                );
                                 let log_rows: Vec<slint::ModelRc<slint::StandardListViewItem>> = logs.iter().map(|l| {
                                     let status_part = if l.4.is_empty() { String::new() } else { format!(" [{}]", l.4) };
                                     let latency_part = l.8.map(|ms| format!(" ({}ms)", ms)).unwrap_or_default();
-                                    let header = format!("[{}] A{}#{} {} {}{}", l.7, l.0, l.1, l.2, l.3, status_part);
+                                    let log_time = format_timestamp_to_local_dashboard(&l.7);
+                                    let header = format!("[{}] A{}#{} {} {}{}", log_time, l.0, l.1, l.2, l.3, status_part);
                                     let log_line = if l.6.is_empty() {
                                         format!("{} - {}{}", header, l.5, latency_part)
                                     } else {
@@ -287,29 +318,55 @@ pub fn register(
             let db = db_ref.clone();
             let cmd_tx = db_cmd_tx.clone();
             rth.spawn(async move {
-                let tx_info = db.with_reader(|conn| {
-                    let ids: (String, String) = conn.query_row(
-                        "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
-                        [tx_id as i64],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                    )?;
-                    let webhook_addr: Option<String> = conn.query_row("SELECT value FROM configurations WHERE key = 'webhook_addr'", [], |row| row.get(0)).ok();
-                    let webhook_port: Option<String> = conn.query_row("SELECT value FROM configurations WHERE key = 'webhook_port'", [], |row| row.get(0)).ok();
-                    let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
-                    let port = webhook_port.unwrap_or_else(|| "8081".to_string());
-                    let webhook_url = build_webhook_url(&addr, &port);
-                    Ok((ids.0, ids.1, webhook_url))
-                }).await;
+                let tx_info = db
+                    .with_reader(|conn| {
+                        let ids: (String, String) = conn.query_row(
+                            "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
+                            [tx_id as i64],
+                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                        )?;
+                        let webhook_addr: Option<String> = conn
+                            .query_row(
+                                "SELECT value FROM configurations WHERE key = 'webhook_addr'",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        let webhook_port: Option<String> = conn
+                            .query_row(
+                                "SELECT value FROM configurations WHERE key = 'webhook_port'",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
+                        let port = webhook_port.unwrap_or_else(|| "8081".to_string());
+                        let webhook_url = build_webhook_url(&addr, &port);
+                        Ok((ids.0, ids.1, webhook_url))
+                    })
+                    .await;
 
                 if let Ok((tx_id_str, request_id, webhook_url)) = tx_info {
-                    let _ = cmd_tx.send(vouchflow::domain::DbCommand::ManualSuccess {
-                        tx_id: tx_id_str.clone(),
-                        result_code: "00".to_string(),
-                        result_payload: Some("Manual success by admin".to_string()),
-                    }).await;
-                    vouchflow::utils::send_webhook(&webhook_url, &request_id, &tx_id_str, "SUCCESS", Some("00"), Some("Manual success by admin")).await;
+                    let _ = cmd_tx
+                        .send(vouchflow::domain::DbCommand::ManualSuccess {
+                            tx_id: tx_id_str.clone(),
+                            result_code: "00".to_string(),
+                            result_payload: Some("Manual success by admin".to_string()),
+                        })
+                        .await;
+                    vouchflow::utils::send_webhook(
+                        &webhook_url,
+                        &request_id,
+                        &tx_id_str,
+                        "SUCCESS",
+                        Some("00"),
+                        Some("Manual success by admin"),
+                    )
+                    .await;
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() { DashboardState::get(&ui).invoke_load_transactions(); }
+                        if let Some(ui) = ui_weak.upgrade() {
+                            DashboardState::get(&ui).invoke_load_transactions();
+                        }
                     });
                 }
             });
@@ -328,31 +385,57 @@ pub fn register(
             let db = db_ref.clone();
             let cmd_tx = db_cmd_tx.clone();
             rth.spawn(async move {
-                let tx_info = db.with_reader(|conn| {
-                    let ids: (String, String) = conn.query_row(
-                        "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
-                        [tx_id as i64],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                    )?;
-                    let webhook_addr: Option<String> = conn.query_row("SELECT value FROM configurations WHERE key = 'webhook_addr'", [], |row| row.get(0)).ok();
-                    let webhook_port: Option<String> = conn.query_row("SELECT value FROM configurations WHERE key = 'webhook_port'", [], |row| row.get(0)).ok();
-                    let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
-                    let port = webhook_port.unwrap_or_else(|| "8081".to_string());
-                    let webhook_url = build_webhook_url(&addr, &port);
-                    Ok((ids.0, ids.1, webhook_url))
-                }).await;
+                let tx_info = db
+                    .with_reader(|conn| {
+                        let ids: (String, String) = conn.query_row(
+                            "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
+                            [tx_id as i64],
+                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                        )?;
+                        let webhook_addr: Option<String> = conn
+                            .query_row(
+                                "SELECT value FROM configurations WHERE key = 'webhook_addr'",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        let webhook_port: Option<String> = conn
+                            .query_row(
+                                "SELECT value FROM configurations WHERE key = 'webhook_port'",
+                                [],
+                                |row| row.get(0),
+                            )
+                            .ok();
+                        let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
+                        let port = webhook_port.unwrap_or_else(|| "8081".to_string());
+                        let webhook_url = build_webhook_url(&addr, &port);
+                        Ok((ids.0, ids.1, webhook_url))
+                    })
+                    .await;
 
                 if let Ok((tx_id_str, request_id, webhook_url)) = tx_info {
-                    let _ = cmd_tx.send(vouchflow::domain::DbCommand::UpdateTransaction {
-                        tx_id: tx_id_str.clone(),
-                        status: vouchflow::domain::TransactionStatus::Failed,
-                        sn: None,
-                        result_code: Some("99".to_string()),
-                        result_payload: Some("Marked as failed by admin".to_string()),
-                    }).await;
-                    vouchflow::utils::send_webhook(&webhook_url, &request_id, &tx_id_str, "FAILED", Some("99"), Some("Marked as failed by admin")).await;
+                    let _ = cmd_tx
+                        .send(vouchflow::domain::DbCommand::UpdateTransaction {
+                            tx_id: tx_id_str.clone(),
+                            status: vouchflow::domain::TransactionStatus::Failed,
+                            sn: None,
+                            result_code: Some("99".to_string()),
+                            result_payload: Some("Marked as failed by admin".to_string()),
+                        })
+                        .await;
+                    vouchflow::utils::send_webhook(
+                        &webhook_url,
+                        &request_id,
+                        &tx_id_str,
+                        "FAILED",
+                        Some("99"),
+                        Some("Marked as failed by admin"),
+                    )
+                    .await;
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() { DashboardState::get(&ui).invoke_load_transactions(); }
+                        if let Some(ui) = ui_weak.upgrade() {
+                            DashboardState::get(&ui).invoke_load_transactions();
+                        }
                     });
                 }
             });
@@ -453,10 +536,14 @@ pub fn register(
             tracing::info!("Load transactions requested");
             let ui_weak = ui_handle.clone();
             let db = db_for_load.clone();
-            let (status, provider, kategori, date_from, date_to, limit, search) = read_dashboard_filters(&ui_weak);
+            let (status, provider, kategori, date_from, date_to, limit, search) =
+                read_dashboard_filters(&ui_weak);
 
             rt_handle.spawn(async move {
-                let transactions = query_transactions(&db, &status, &provider, &kategori, &date_from, &date_to, limit, &search).await;
+                let transactions = query_transactions(
+                    &db, &status, &provider, &kategori, &date_from, &date_to, limit, &search,
+                )
+                .await;
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak.upgrade() {
                         apply_transactions_to_ui(&ui, transactions);
@@ -525,7 +612,9 @@ pub fn register(
     {
         DashboardState::get(ui).on_sort_transactions(move |column_index, ascending| {
             let _ = slint::invoke_from_event_loop(move || {
-                with_table(TableId::Dashboard, |m| m.sort_by_column(column_index as usize, ascending));
+                with_table(TableId::Dashboard, |m| {
+                    m.sort_by_column(column_index as usize, ascending)
+                });
             });
         });
     }
@@ -536,7 +625,12 @@ pub fn register(
 /// Build webhook URL from address and port
 fn build_webhook_url(addr: &str, port: &str) -> String {
     if addr.starts_with("http://") || addr.starts_with("https://") {
-        if addr.rsplit(':').next().map(|v| v.parse::<u16>().is_ok()).unwrap_or(false) {
+        if addr
+            .rsplit(':')
+            .next()
+            .map(|v| v.parse::<u16>().is_ok())
+            .unwrap_or(false)
+        {
             addr.to_string()
         } else {
             format!("{}:{}", addr.trim_end_matches('/'), port)
@@ -549,44 +643,98 @@ fn build_webhook_url(addr: &str, port: &str) -> String {
 }
 
 /// Read current filter values from the DashboardState UI
-fn read_dashboard_filters(ui_weak: &slint::Weak<AppWindow>) -> (String, String, String, String, String, i32, String) {
+fn read_dashboard_filters(
+    ui_weak: &slint::Weak<AppWindow>,
+) -> (String, String, String, String, String, i32, String) {
     if let Some(ui) = ui_weak.upgrade() {
         let state = DashboardState::get(&ui);
         let status_idx = state.get_status_filter_index() as usize;
         let provider_idx = state.get_provider_filter_index() as usize;
         let kategori_idx = state.get_kategori_filter_index() as usize;
 
-        let selected_status = state.get_status_options().row_data(status_idx).map(|v| v.to_string()).unwrap_or_else(|| "Semua".to_string());
-        let selected_provider = state.get_provider_options().row_data(provider_idx).map(|v| v.to_string()).unwrap_or_else(|| "Semua".to_string());
-        let selected_kategori = state.get_kategori_options().row_data(kategori_idx).map(|v| v.to_string()).unwrap_or_else(|| "Semua".to_string());
+        let selected_status = state
+            .get_status_options()
+            .row_data(status_idx)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "Semua".to_string());
+        let selected_provider = state
+            .get_provider_options()
+            .row_data(provider_idx)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "Semua".to_string());
+        let selected_kategori = state
+            .get_kategori_options()
+            .row_data(kategori_idx)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "Semua".to_string());
 
         let mut from = state.get_date_from().to_string();
         let mut to = state.get_date_to().to_string();
         if from.is_empty() || to.is_empty() {
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-            if from.is_empty() { from = today.clone(); }
-            if to.is_empty() { to = today; }
+            if from.is_empty() {
+                from = today.clone();
+            }
+            if to.is_empty() {
+                to = today;
+            }
         }
-        (selected_status, selected_provider, selected_kategori, from, to, state.get_limit_index(), state.get_search_query().to_string())
+        (
+            selected_status,
+            selected_provider,
+            selected_kategori,
+            from,
+            to,
+            state.get_limit_index(),
+            state.get_search_query().to_string(),
+        )
     } else {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        ("Semua".to_string(), "Semua".to_string(), "Semua".to_string(), today.clone(), today, 0, String::new())
+        (
+            "Semua".to_string(),
+            "Semua".to_string(),
+            "Semua".to_string(),
+            today.clone(),
+            today,
+            0,
+            String::new(),
+        )
     }
-}
-
-fn next_day_ymd(date: &str) -> Option<String> {
-    chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
-        .ok()
-        .and_then(|d| d.succ_opt())
-        .map(|d| d.format("%Y-%m-%d").to_string())
 }
 
 /// Query transactions from DB with filters
 async fn query_transactions(
     db: &Database,
-    status: &str, provider: &str, kategori: &str,
-    date_from: &str, date_to: &str, limit: i32, search: &str,
-) -> Result<(Vec<(i64, String, String, String, String, f64, String, String, Option<String>, String, Option<String>, String)>, usize, usize, usize, usize), DomainError> {
+    status: &str,
+    provider: &str,
+    kategori: &str,
+    date_from: &str,
+    date_to: &str,
+    limit: i32,
+    search: &str,
+) -> Result<
+    (
+        Vec<(
+            i64,
+            String,
+            String,
+            String,
+            String,
+            f64,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            String,
+        )>,
+        usize,
+        usize,
+        usize,
+        usize,
+    ),
+    DomainError,
+> {
     let status = status.to_string();
     let provider = provider.to_string();
     let kategori = kategori.to_string();
@@ -595,6 +743,8 @@ async fn query_transactions(
     let search = search.to_string();
 
     db.with_reader(move |conn| {
+        let local_date_expr =
+            "COALESCE(date(created_at, 'localtime'), substr(replace(created_at, 'T', ' '), 1, 10))";
         let mut conditions: Vec<String> = Vec::new();
         let mut params: Vec<String> = Vec::new();
 
@@ -616,20 +766,12 @@ async fn query_transactions(
             params.push(kategori.clone());
         }
         if !date_from.is_empty() {
-            // Index-friendly range start.
-            conditions.push("created_at >= ?".to_string());
+            conditions.push(format!("{} >= ?", local_date_expr));
             params.push(date_from.clone());
         }
         if !date_to.is_empty() {
-            // Index-friendly exclusive range end (next day at 00:00).
-            if let Some(next_day) = next_day_ymd(&date_to) {
-                conditions.push("created_at < ?".to_string());
-                params.push(next_day);
-            } else {
-                // Fallback for invalid date input.
-                conditions.push("created_at <= ?".to_string());
-                params.push(date_to.clone());
-            }
+            conditions.push(format!("{} <= ?", local_date_expr));
+            params.push(date_to.clone());
         }
         if !search.is_empty() {
             conditions.push("(request_id LIKE ? OR nomor LIKE ? OR kode_produk LIKE ? OR COALESCE(sn, '') LIKE ?)".to_string());
@@ -646,9 +788,7 @@ async fn query_transactions(
         };
         let mut stmt = conn.prepare(&format!(
             "SELECT rowid, tx_id, request_id, provider, kategori, harga, kode_produk, nomor, sn, status, result_code,
-                    COALESCE(strftime('%Y-%m-%d %H:%M:%S', replace(created_at, 'T', ' ')),
-                             substr(replace(created_at, 'T', ' '), 1, 19),
-                             created_at)
+                    COALESCE(created_at, '')
              FROM transactions {} ORDER BY created_at DESC LIMIT {}",
             where_clause, limit_val
         ))?;
@@ -670,30 +810,60 @@ async fn query_transactions(
 /// Apply transaction query results to the DashboardState UI
 fn apply_transactions_to_ui(
     ui: &AppWindow,
-    transactions: Result<(Vec<(i64, String, String, String, String, f64, String, String, Option<String>, String, Option<String>, String)>, usize, usize, usize, usize), DomainError>,
+    transactions: Result<
+        (
+            Vec<(
+                i64,
+                String,
+                String,
+                String,
+                String,
+                f64,
+                String,
+                String,
+                Option<String>,
+                String,
+                Option<String>,
+                String,
+            )>,
+            usize,
+            usize,
+            usize,
+            usize,
+        ),
+        DomainError,
+    >,
 ) {
     let state = DashboardState::get(ui);
     match transactions {
         Ok((rows, total, success, pending, failed)) => {
-            let table_rows: Vec<slint::ModelRc<slint::StandardListViewItem>> = rows.iter().map(|r| {
-                let items: Vec<slint::StandardListViewItem> = vec![
-                    slint::StandardListViewItem::from(slint::format!("{}", r.2)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.3)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.7)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.6)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.4)),
-                    slint::StandardListViewItem::from(slint::format!("{:.0}", r.5)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.8.clone().unwrap_or_default())),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.9)),
-                    slint::StandardListViewItem::from(slint::format!("{}", r.11)),
-                ];
-                slint::ModelRc::new(slint::VecModel::from(items))
-            }).collect();
+            let table_rows: Vec<slint::ModelRc<slint::StandardListViewItem>> = rows
+                .iter()
+                .map(|r| {
+                    let items: Vec<slint::StandardListViewItem> = vec![
+                        slint::StandardListViewItem::from(slint::format!("{}", r.2)),
+                        slint::StandardListViewItem::from(slint::format!("{}", r.3)),
+                        slint::StandardListViewItem::from(slint::format!("{}", r.7)),
+                        slint::StandardListViewItem::from(slint::format!("{}", r.6)),
+                        slint::StandardListViewItem::from(slint::format!("{}", r.4)),
+                        slint::StandardListViewItem::from(slint::format!("{:.0}", r.5)),
+                        slint::StandardListViewItem::from(slint::format!(
+                            "{}",
+                            r.8.clone().unwrap_or_default()
+                        )),
+                        slint::StandardListViewItem::from(slint::format!("{}", r.9)),
+                        slint::StandardListViewItem::from(slint::format!(
+                            "{}",
+                            format_timestamp_to_local_dashboard(&r.11)
+                        )),
+                    ];
+                    slint::ModelRc::new(slint::VecModel::from(items))
+                })
+                .collect();
             let ids: Vec<i32> = rows.iter().map(|r| r.0 as i32).collect();
 
-            let (rows_model, ids_model) = with_table(TableId::Dashboard, |m| {
-                m.set_all(table_rows, ids)
-            });
+            let (rows_model, ids_model) =
+                with_table(TableId::Dashboard, |m| m.set_all(table_rows, ids));
             state.set_transactions(rows_model);
             state.set_transaction_ids(ids_model);
             state.set_total_transactions(total as i32);
@@ -706,4 +876,3 @@ fn apply_transactions_to_ui(
         }
     }
 }
-

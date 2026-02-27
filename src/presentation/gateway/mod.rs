@@ -1,8 +1,8 @@
 //! Gateway infrastructure
 
-pub mod server;
 pub mod handlers;
 pub mod middleware;
+pub mod server;
 
-pub use server::*;
 pub use handlers::*;
+pub use server::*;

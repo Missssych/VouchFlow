@@ -47,8 +47,6 @@ impl Gateway {
             .route("/api/v1/transaksi", get(handlers::handle_transaksi))
             // Health check
             .route("/health", get(handlers::health_check))
-            // Status check endpoint
-            .route("/api/v1/status/{request_id}", get(handlers::get_status))
             .layer(cors)
             .layer(TraceLayer::new_for_http())
             .with_state(self.state.clone())

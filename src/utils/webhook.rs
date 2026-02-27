@@ -40,11 +40,7 @@ pub async fn send_webhook(
 
     tracing::info!(url = %url, tx_id = %tx_id, status = %status, "Sending webhook");
 
-    match client.post(url)
-        .json(&payload)
-        .send()
-        .await
-    {
+    match client.post(url).json(&payload).send().await {
         Ok(resp) => {
             tracing::info!(
                 url = %url, status_code = %resp.status(),

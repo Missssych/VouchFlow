@@ -1,7 +1,7 @@
 //! DB Command Queue - Orchestrator to DB Writer communication
 
-use tokio::sync::mpsc;
 use crate::domain::DbCommand;
+use tokio::sync::mpsc;
 
 /// DB command sender
 pub type DbCommandSender = mpsc::Sender<DbCommand>;

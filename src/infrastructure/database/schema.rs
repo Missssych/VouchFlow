@@ -146,4 +146,3 @@ pub const ALL_SCHEMAS: &[&str] = &[
     CREATE_STOK_VOUCHER,
     CREATE_TRANSACTION_LOGS,
 ];
-

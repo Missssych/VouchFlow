@@ -1,5 +1,5 @@
 //! Telkomsel Provider Implementation
-//! 
+//!
 //! Implements check and redeem voucher for Telkomsel provider.
 //! Ported from telkomselVoucher.js
 
@@ -28,7 +28,7 @@ where
             } else {
                 s.parse().map(Some).map_err(serde::de::Error::custom)
             }
-        },
+        }
         Some(StringOrInt::Int(i)) => Ok(Some(i)),
         None => Ok(None),
     }
@@ -71,13 +71,29 @@ const RECAPTCHA_RESPONSE: &str = "MG4sJ@b3MqUoMtdFRFWw2g7r";
 /// Default headers for eTelkomsel API
 fn default_headers() -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("accept", "application/json, text/plain, */*".parse().unwrap());
-    headers.insert("accept-language", "en-US,en;q=0.9,id;q=0.8".parse().unwrap());
+    headers.insert(
+        "accept",
+        "application/json, text/plain, */*".parse().unwrap(),
+    );
+    headers.insert(
+        "accept-language",
+        "en-US,en;q=0.9,id;q=0.8".parse().unwrap(),
+    );
     headers.insert("content-type", "application/json".parse().unwrap());
     headers.insert("device-id", DEVICE_ID.parse().unwrap());
     headers.insert("origin", "https://www.telkomsel.com".parse().unwrap());
-    headers.insert("referer", "https://www.telkomsel.com/shops/voucher/check".parse().unwrap());
-    headers.insert("sec-ch-ua", "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\"".parse().unwrap());
+    headers.insert(
+        "referer",
+        "https://www.telkomsel.com/shops/voucher/check"
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        "sec-ch-ua",
+        "\"Chromium\";v=\"136\", \"Google Chrome\";v=\"136\", \"Not.A/Brand\";v=\"99\""
+            .parse()
+            .unwrap(),
+    );
     headers.insert("sec-ch-ua-mobile", "?0".parse().unwrap());
     headers.insert("sec-ch-ua-platform", "\"Windows\"".parse().unwrap());
     headers.insert("sec-fetch-dest", "empty".parse().unwrap());
@@ -100,11 +116,20 @@ struct TelkomselCheckResponse {
     description: Option<String>,
     #[serde(default, deserialize_with = "deserialize_option_string_or_int")]
     validity: Option<i32>,
-    #[serde(default, alias = "expired_date", alias = "expireddate", deserialize_with = "deserialize_option_string_like")]
+    #[serde(
+        default,
+        alias = "expired_date",
+        alias = "expireddate",
+        deserialize_with = "deserialize_option_string_like"
+    )]
     expired_date: Option<String>,
     #[serde(default, deserialize_with = "deserialize_option_string_like")]
     used_by: Option<String>,
-    #[serde(default, rename = "usedDateTime", deserialize_with = "deserialize_option_string_like")]
+    #[serde(
+        default,
+        rename = "usedDateTime",
+        deserialize_with = "deserialize_option_string_like"
+    )]
     used_date_time: Option<String>,
     #[serde(default, deserialize_with = "deserialize_option_string_like")]
     region: Option<String>,
@@ -149,10 +174,10 @@ impl TelkomselProvider {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
-        
+
         Self { client }
     }
-    
+
     /// Parse serial number - truncate to 12 chars if longer
     fn parse_serial(serial: &str) -> String {
         if serial.len() > 12 {
@@ -172,15 +197,12 @@ impl TelkomselProvider {
     }
 
     fn build_redeem_failure_message(response: &TelkomselRedeemResponse) -> String {
-        let error_code = response
-            .data
-            .as_ref()
-            .and_then(|data| data.code.as_deref());
+        let error_code = response.data.as_ref().and_then(|data| data.code.as_deref());
 
         match error_code {
-            Some("15") => "redeem voucher gagal, voucher sudah digunakan (code 15)".to_string(),
-            Some("20") => "redeem voucher gagal, voucher belum ter-inject (code 20)".to_string(),
-            Some("3023") => "redeem voucher gagal, kode voucher salah (code 3023)".to_string(),
+            Some("15") => "voucher sudah digunakan (code 15)".to_string(),
+            Some("20") => "voucher belum ter-inject (code 20)".to_string(),
+            Some("3023") => "kode voucher salah (code 3023)".to_string(),
             _ => {
                 let description = response
                     .data
@@ -192,17 +214,17 @@ impl TelkomselProvider {
 
                 if let Some(description) = description {
                     if let Some(code) = error_code {
-                        format!("redeem voucher gagal: {} (code {})", description, code)
+                        format!("{} (code {})", description, code)
                     } else {
-                        format!("redeem voucher gagal: {}", description)
+                        description
                     }
                 } else if response.message.as_deref() == Some("400")
                     || response.status_message.as_deref() == Some("400")
                     || response.status_code == Some(400)
                 {
-                    "redeem voucher gagal, nomor tujuan salah".to_string()
+                    "nomor tujuan salah".to_string()
                 } else {
-                    "redeem voucher gagal".to_string()
+                    "Provider request failed".to_string()
                 }
             }
         }
@@ -212,10 +234,7 @@ impl TelkomselProvider {
         http_status: reqwest::StatusCode,
         response: &TelkomselRedeemResponse,
     ) -> (bool, Option<String>) {
-        let error_code = response
-            .data
-            .as_ref()
-            .and_then(|data| data.code.as_deref());
+        let error_code = response.data.as_ref().and_then(|data| data.code.as_deref());
         let known_failure_code = matches!(error_code, Some("15") | Some("20") | Some("3023"));
         let is_bad_request = response.message.as_deref() == Some("400")
             || response.status_message.as_deref() == Some("400")
@@ -243,7 +262,7 @@ impl TelkomselProvider {
                         .and_then(|data| data.description.as_deref())
                         .and_then(|msg| Self::clean_message(Some(msg)))
                 })
-                .or_else(|| Some("redeem voucher berhasil".to_string()))
+                .or_else(|| Some("Success".to_string()))
         } else {
             Some(Self::build_redeem_failure_message(response))
         };
@@ -263,85 +282,90 @@ impl ProviderApi for TelkomselProvider {
     fn name(&self) -> &'static str {
         "Telkomsel"
     }
-    
+
     async fn check_voucher(&self, barcode: &str) -> Result<CheckResponse, ProviderError> {
         tracing::info!("Telkomsel: Checking voucher {}", barcode);
-        
+
         let parsed_serial = Self::parse_serial(barcode);
         let url = format!("{}/check", BASE_URL);
-        
+
         let body = serde_json::json!({
             "serialNumber": parsed_serial,
             "recaptcharesponse": RECAPTCHA_RESPONSE,
             "voucher_type": "voucher"
         });
-        
-        let resp = self.client.post(&url)
-            .json(&body)
-            .send()
-            .await?;
-        
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+
         let status_code = resp.status();
         let raw_text = resp.text().await?;
-        
+
         tracing::debug!("Telkomsel check response: {}", raw_text);
-        
-        let check_resp: TelkomselCheckResponse = serde_json::from_str(&raw_text)
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
-        
+
+        let check_resp: TelkomselCheckResponse = serde_json::from_str(&raw_text).map_err(|e| {
+            ProviderError::InvalidResponse(format!("Failed to parse response: {}", e))
+        })?;
+
         let raw_json: Option<serde_json::Value> = serde_json::from_str(&raw_text).ok();
-        
+
         // Parse statusCode according to JS logic
         match check_resp.status_code {
             // statusCode 0: Valid/available voucher
-            Some(0) => {
-                Ok(CheckResponse {
-                    success: true,
-                    serial_number: barcode.to_string(),
-                    product_name: None,
-                    nominal: None,
-                    expiry_date: check_resp.expired_date.clone(),
-                    status: check_resp.status_message.unwrap_or_else(|| "AVAILABLE".to_string()),
-                    raw_response: raw_json.clone(),
-                })
-            }
+            Some(0) => Ok(CheckResponse {
+                success: true,
+                serial_number: barcode.to_string(),
+                product_name: None,
+                nominal: None,
+                expiry_date: check_resp.expired_date.clone(),
+                status: check_resp
+                    .status_message
+                    .unwrap_or_else(|| "AVAILABLE".to_string()),
+                raw_response: raw_json.clone(),
+            }),
             // statusCode 1 or 3: Used voucher - return used info
             Some(1) | Some(3) => {
                 let description = match (&check_resp.description, &check_resp.validity) {
-                    (Some(desc), Some(validity)) => Some(format!("Voucher {}-{} Day", desc, validity)),
+                    (Some(desc), Some(validity)) => {
+                        Some(format!("Voucher {}-{} Day", desc, validity))
+                    }
                     (Some(desc), None) => Some(desc.clone()),
                     _ => None,
                 };
-                
+
                 Ok(CheckResponse {
                     success: true,
                     serial_number: barcode.to_string(),
                     product_name: description,
                     nominal: None,
                     expiry_date: check_resp.expired_date.clone(),
-                    status: check_resp.status_message.unwrap_or_else(|| "USED".to_string()),
+                    status: check_resp
+                        .status_message
+                        .unwrap_or_else(|| "USED".to_string()),
                     raw_response: raw_json.clone(),
                 })
             }
             // statusCode 5 or 6: Expired voucher
-            Some(5) | Some(6) => {
-                Ok(CheckResponse {
-                    success: true,
-                    serial_number: barcode.to_string(),
-                    product_name: None,
-                    nominal: None,
-                    expiry_date: check_resp.expired_date.clone(),
-                    status: format!("EXPIRED (exp: {})", check_resp.expired_date.as_deref().unwrap_or("unknown")),
-                    raw_response: raw_json.clone(),
-                })
-            }
+            Some(5) | Some(6) => Ok(CheckResponse {
+                success: true,
+                serial_number: barcode.to_string(),
+                product_name: None,
+                nominal: None,
+                expiry_date: check_resp.expired_date.clone(),
+                status: format!(
+                    "EXPIRED (exp: {})",
+                    check_resp.expired_date.as_deref().unwrap_or("unknown")
+                ),
+                raw_response: raw_json.clone(),
+            }),
             // Other statusCodes or missing serial - return raw response
             _ => {
                 // Check if serial_number is missing or empty (invalid voucher)
-                let is_invalid = check_resp.serial_number.as_ref()
+                let is_invalid = check_resp
+                    .serial_number
+                    .as_ref()
                     .map(|s| s.is_empty())
                     .unwrap_or(true);
-                
+
                 if is_invalid {
                     Ok(CheckResponse {
                         success: false,
@@ -367,12 +391,20 @@ impl ProviderApi for TelkomselProvider {
             }
         }
     }
-    
-    async fn redeem_voucher(&self, msisdn: &str, serial_number: &str) -> Result<RedeemResponse, ProviderError> {
-        tracing::info!("Telkomsel: Redeeming voucher {} for {}", serial_number, msisdn);
-        
+
+    async fn redeem_voucher(
+        &self,
+        msisdn: &str,
+        serial_number: &str,
+    ) -> Result<RedeemResponse, ProviderError> {
+        tracing::info!(
+            "Telkomsel: Redeeming voucher {} for {}",
+            serial_number,
+            msisdn
+        );
+
         let url = format!("{}/redeem", BASE_URL);
-        
+
         let body = serde_json::json!({
             // API field still uses `hrn`, value comes from stock `serial_number`
             "hrn": serial_number,
@@ -381,26 +413,33 @@ impl ProviderApi for TelkomselProvider {
             "voucher_type": "voucher",
             "recaptcharesponse": RECAPTCHA_RESPONSE
         });
-        
+
         // Use different headers for redeem (as per JS)
-        let resp = self.client.post(&url)
-            .header("referer", "https://www.telkomsel.com/shops/voucher/redeem?standalon=true")
+        let resp = self
+            .client
+            .post(&url)
+            .header(
+                "referer",
+                "https://www.telkomsel.com/shops/voucher/redeem?standalon=true",
+            )
             .json(&body)
             .send()
             .await?;
-        
+
         let status_code = resp.status();
         let raw_text = resp.text().await?;
-        
+
         tracing::debug!("Telkomsel redeem response: {}", raw_text);
-        
-        let redeem_resp: TelkomselRedeemResponse = serde_json::from_str(&raw_text)
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
-        
+
+        let redeem_resp: TelkomselRedeemResponse =
+            serde_json::from_str(&raw_text).map_err(|e| {
+                ProviderError::InvalidResponse(format!("Failed to parse response: {}", e))
+            })?;
+
         let raw_json: Option<serde_json::Value> = serde_json::from_str(&raw_text).ok();
-        
+
         let (success, message) = Self::map_redeem_outcome(status_code, &redeem_resp);
-        
+
         Ok(RedeemResponse {
             success,
             msisdn: msisdn.to_string(),
@@ -415,11 +454,17 @@ impl ProviderApi for TelkomselProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_serial() {
-        assert_eq!(TelkomselProvider::parse_serial("123456789012"), "123456789012");
-        assert_eq!(TelkomselProvider::parse_serial("12345678901234567"), "123456789012");
+        assert_eq!(
+            TelkomselProvider::parse_serial("123456789012"),
+            "123456789012"
+        );
+        assert_eq!(
+            TelkomselProvider::parse_serial("12345678901234567"),
+            "123456789012"
+        );
         assert_eq!(TelkomselProvider::parse_serial("12345"), "12345");
     }
 
@@ -433,11 +478,11 @@ mod tests {
             "serialNumber": "123456789012"
         }
         "#;
-        
+
         let resp: TelkomselCheckResponse = serde_json::from_str(json_str).unwrap();
         assert_eq!(resp.status_code, Some(0));
         assert_eq!(resp.validity, Some(30));
-        
+
         let json_int = r#"
         {
             "statusCode": 0,
@@ -446,7 +491,7 @@ mod tests {
             "serialNumber": "123456789012"
         }
         "#;
-        
+
         let resp_int: TelkomselCheckResponse = serde_json::from_str(json_int).unwrap();
         assert_eq!(resp_int.status_code, Some(0));
         assert_eq!(resp_int.validity, Some(30));
@@ -602,4 +647,3 @@ mod tests {
         assert_eq!(message.as_deref(), Some("redeem voucher berhasil"));
     }
 }
-

@@ -59,6 +59,7 @@ pub struct TransaksiApiResponse {
     pub nomor: String,
     pub produk: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     pub idtrx: String,
 }
@@ -301,14 +302,4 @@ pub async fn handle_transaksi(
 /// Health check endpoint
 pub async fn health_check() -> Json<ApiResponse<String>> {
     Json(ApiResponse::success("OK".to_string()))
-}
-
-/// Get transaction status
-/// GET /api/v1/status/:request_id
-pub async fn get_status(
-    Path(request_id): Path<String>,
-) -> Json<ApiResponse<String>> {
-    // This would query the database for status
-    // For now, return placeholder
-    Json(ApiResponse::success(format!("Status for: {}", request_id)))
 }

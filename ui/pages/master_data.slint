@@ -74,6 +74,15 @@ export component MasterData inherits Rectangle {
             StokState.form-serial-number,
             StokState.form-expired-date);
     }
+    function submit-voucher-form() {
+        let is-add-mode = StokState.edit-stock-id == -1;
+        root.save-voucher-form();
+        if (is-add-mode) {
+            StokState.next-barcode();
+            StokState.form-serial-number = "";
+            root.focus-voucher-form-field(3);
+        }
+    }
     function focus-voucher-form-field(index: int) {
         let target = min(max(index, 0), root.voucher-form-field-count - 1);
         root.voucher-form-focus-index = target;
@@ -102,7 +111,7 @@ export component MasterData inherits Rectangle {
             return accept;
         }
         if (event.text == Key.Return || event.text == "\n" || event.text == "\u{000d}") {
-            root.save-voucher-form();
+            root.submit-voucher-form();
             return accept;
         }
         return reject;
@@ -742,7 +751,7 @@ export component MasterData inherits Rectangle {
                     text: "Simpan";
                     height: 32px;
                     clicked => {
-                        root.save-voucher-form();
+                        root.submit-voucher-form();
                     }
                 }
             }

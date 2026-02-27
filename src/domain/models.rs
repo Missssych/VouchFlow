@@ -1,7 +1,7 @@
 //! Domain models for the application
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Transaction status enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ impl TransactionStatus {
             Self::Expired => "EXPIRED",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "PENDING" => Some(Self::Pending),
@@ -34,7 +34,7 @@ impl TransactionStatus {
             _ => None,
         }
     }
-    
+
     pub fn is_final(&self) -> bool {
         matches!(self, Self::Success | Self::Failed | Self::Expired)
     }
@@ -60,16 +60,16 @@ pub struct Transaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionSummary {
     pub tx_id: String,
-    pub request_id: String,    // Idtrx
-    pub provider: String,      // Provider
-    pub produk: String,        // Produk
-    pub kategori: String,      // Kategori (CEK/RDM/FIS)
-    pub harga: f64,            // Harga
-    pub nomor: String,         // Nomor
-    pub sn: Option<String>,    // SN (FIS=serial_number, RDM=barcode, CEK=nomor)
-    pub status: String,        // Status
+    pub request_id: String, // Idtrx
+    pub provider: String,   // Provider
+    pub produk: String,     // Produk
+    pub kategori: String,   // Kategori (CEK/RDM/FIS)
+    pub harga: f64,         // Harga
+    pub nomor: String,      // Nomor
+    pub sn: Option<String>, // SN (FIS=serial_number, RDM=barcode, CEK=nomor)
+    pub status: String,     // Status
     pub result_code: Option<String>,
-    pub created_at: String,    // Waktu trx
+    pub created_at: String, // Waktu trx
 }
 
 /// Transaction result for API response
@@ -96,7 +96,7 @@ impl TransactionResult {
             message: None,
         }
     }
-    
+
     pub fn failed(request_id: String, tx_id: String, code: String, message: String) -> Self {
         Self {
             success: false,
@@ -108,7 +108,7 @@ impl TransactionResult {
             message: Some(message),
         }
     }
-    
+
     pub fn pending(request_id: String, tx_id: String) -> Self {
         Self {
             success: true,
@@ -120,7 +120,7 @@ impl TransactionResult {
             message: Some("Transaksi sedang diproses, hasil akan dikirim via webhook".to_string()),
         }
     }
-    
+
     /// Convert to unified response format {idtrx, nomor, produk, message}
     pub fn to_unified(&self, nomor: &str, produk: &str) -> UnifiedResponse {
         UnifiedResponse {
@@ -130,13 +130,15 @@ impl TransactionResult {
             message: self.format_message(),
         }
     }
-    
+
     /// Format message for unified response
     fn format_message(&self) -> String {
         let status_msg = format!("Status: {}", self.status);
-        
+
         match (&self.result_code, &self.result_payload, &self.message) {
-            (Some(code), Some(payload), _) => format!("{}. Code: {}. {}", status_msg, code, payload),
+            (Some(code), Some(payload), _) => {
+                format!("{}. Code: {}. {}", status_msg, code, payload)
+            }
             (Some(code), None, Some(msg)) => format!("{}. Code: {}. {}", status_msg, code, msg),
             (Some(code), None, None) => format!("{}. Code: {}", status_msg, code),
             (None, Some(payload), _) => format!("{}. {}", status_msg, payload),
@@ -157,15 +159,24 @@ pub struct UnifiedResponse {
 
 impl UnifiedResponse {
     /// Create success response for CEK transaction
-    pub fn cek_success(idtrx: &str, nomor: &str, produk: &str, nominal: f64, expired: &str) -> Self {
+    pub fn cek_success(
+        idtrx: &str,
+        nomor: &str,
+        produk: &str,
+        nominal: f64,
+        expired: &str,
+    ) -> Self {
         Self {
             idtrx: idtrx.to_string(),
             nomor: nomor.to_string(),
             produk: produk.to_string(),
-            message: format!("Status: AVAILABLE. Nominal: {:.0}. Expired: {}", nominal, expired),
+            message: format!(
+                "Status: AVAILABLE. Nominal: {:.0}. Expired: {}",
+                nominal, expired
+            ),
         }
     }
-    
+
     /// Create success response for RDM transaction
     pub fn rdm_success(idtrx: &str, nomor: &str, produk: &str, barcode: &str, harga: f64) -> Self {
         Self {
@@ -175,17 +186,28 @@ impl UnifiedResponse {
             message: format!("Status: SUCCESS. Barcode: {}. Harga: {:.0}", barcode, harga),
         }
     }
-    
+
     /// Create success response for FIS transaction
-    pub fn fis_success(idtrx: &str, nomor: &str, produk: &str, barcode: &str, sn: &str, expired: &str, harga: f64) -> Self {
+    pub fn fis_success(
+        idtrx: &str,
+        nomor: &str,
+        produk: &str,
+        barcode: &str,
+        sn: &str,
+        expired: &str,
+        harga: f64,
+    ) -> Self {
         Self {
             idtrx: idtrx.to_string(),
             nomor: nomor.to_string(),
             produk: produk.to_string(),
-            message: format!("Status: SUCCESS. Barcode: {}. SN: {}. Expired: {}. Harga: {:.0}", barcode, sn, expired, harga),
+            message: format!(
+                "Status: SUCCESS. Barcode: {}. SN: {}. Expired: {}. Harga: {:.0}",
+                barcode, sn, expired, harga
+            ),
         }
     }
-    
+
     /// Create error response
     pub fn error(idtrx: &str, nomor: &str, produk: &str, error_msg: &str) -> Self {
         Self {
@@ -195,7 +217,7 @@ impl UnifiedResponse {
             message: format!("Status: FAILED. {}", error_msg),
         }
     }
-    
+
     /// Convert to webhook raw text format
     pub fn to_webhook_text(&self) -> String {
         format!(
@@ -277,7 +299,7 @@ impl StokVoucherStatus {
             Self::Used => "USED",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "ACTIVE" => Some(Self::Active),
@@ -332,4 +354,3 @@ pub struct CheckVoucherResult {
     pub status: String,
     pub message: Option<String>,
 }
-

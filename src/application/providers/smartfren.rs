@@ -1,11 +1,11 @@
 //! Smartfren Provider Implementation
-//! 
+//!
 //! Implements redeem voucher for Smartfren provider.
 //! Uses AES-ECB encryption with OpenSSL-compatible key derivation for CryptoJS compatibility.
 //! Ported from smart.js
 
-use async_trait::async_trait;
 use aes::cipher::KeyInit;
+use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::Client;
 use serde::{Deserialize, Deserializer};
@@ -22,7 +22,12 @@ fn default_headers(mdn: &str) -> reqwest::header::HeaderMap {
     headers.insert("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36".parse().unwrap());
     headers.insert("Content-Type", "application/json".parse().unwrap());
     headers.insert("Origin", "https://www.smartfren.com".parse().unwrap());
-    headers.insert("Referer", format!("https://www.smartfren.com/voucher-topup?val={}", mdn).parse().unwrap());
+    headers.insert(
+        "Referer",
+        format!("https://www.smartfren.com/voucher-topup?val={}", mdn)
+            .parse()
+            .unwrap(),
+    );
     headers
 }
 
@@ -99,33 +104,33 @@ impl SmartfrenProvider {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
-        
+
         Self { client }
     }
-    
+
     /// Encrypt payload using CryptoJS-compatible AES encryption
     /// CryptoJS with string key uses OpenSSL-compatible key derivation (EVP_BytesToKey)
     /// NOTE: JavaScript uses ECB mode, so IV is derived but not used
     fn encrypt_payload(data: &str, passphrase: &str) -> Result<String, ProviderError> {
         // Generate random 8-byte salt
         let salt = Self::generate_salt();
-        
+
         // Derive key using EVP_BytesToKey (OpenSSL compatible)
         // Note: IV is derived but ignored for ECB mode
         let (key, _iv) = Self::evp_bytes_to_key(passphrase.as_bytes(), &salt, 32, 16);
-        
+
         // Encrypt using AES-256-ECB (as specified in smart.js)
         let encrypted = Self::aes_256_ecb_encrypt(data.as_bytes(), &key)?;
-        
+
         // Format: "Salted__" + salt + encrypted_data (OpenSSL format)
         let mut result = Vec::with_capacity(8 + 8 + encrypted.len());
         result.extend_from_slice(b"Salted__");
         result.extend_from_slice(&salt);
         result.extend_from_slice(&encrypted);
-        
+
         Ok(BASE64.encode(&result))
     }
-    
+
     /// Generate random 8-byte salt
     fn generate_salt() -> [u8; 8] {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -133,20 +138,25 @@ impl SmartfrenProvider {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        
+
         let mut salt = [0u8; 8];
         for (i, byte) in salt.iter_mut().enumerate() {
             *byte = ((seed >> (i * 8)) & 0xFF) as u8;
         }
         salt
     }
-    
+
     /// EVP_BytesToKey key derivation (OpenSSL compatible, used by CryptoJS)
     /// CryptoJS default hasher for passphrase mode is MD5.
-    fn evp_bytes_to_key(password: &[u8], salt: &[u8], key_len: usize, iv_len: usize) -> (Vec<u8>, Vec<u8>) {
+    fn evp_bytes_to_key(
+        password: &[u8],
+        salt: &[u8],
+        key_len: usize,
+        iv_len: usize,
+    ) -> (Vec<u8>, Vec<u8>) {
         let mut derived = Vec::new();
         let mut block = Vec::new();
-        
+
         while derived.len() < key_len + iv_len {
             let mut hasher_input = Vec::with_capacity(block.len() + password.len() + salt.len());
             if !block.is_empty() {
@@ -158,33 +168,36 @@ impl SmartfrenProvider {
             block = md5::compute(hasher_input).0.to_vec();
             derived.extend_from_slice(&block);
         }
-        
+
         let key = derived[..key_len].to_vec();
         let iv = derived[key_len..key_len + iv_len].to_vec();
         (key, iv)
     }
-    
+
     /// AES-256-ECB encryption (matches smart.js mode: CryptoJS.mode.ECB)
     fn aes_256_ecb_encrypt(data: &[u8], key: &[u8]) -> Result<Vec<u8>, ProviderError> {
-        use aes::cipher::{BlockEncrypt, generic_array::GenericArray};
         use aes::Aes256;
-        
+        use aes::cipher::{BlockEncrypt, generic_array::GenericArray};
+
         if key.len() != 32 {
-            return Err(ProviderError::DecryptionError("Invalid key length".to_string()));
+            return Err(ProviderError::DecryptionError(
+                "Invalid key length".to_string(),
+            ));
         }
-        
-        let key_arr: [u8; 32] = key.try_into()
+
+        let key_arr: [u8; 32] = key
+            .try_into()
             .map_err(|_| ProviderError::DecryptionError("Invalid key length".to_string()))?;
-        
+
         // Create cipher
         let cipher = Aes256::new(GenericArray::from_slice(&key_arr));
-        
+
         // Apply PKCS7 padding
         let block_size = 16;
         let padding_len = block_size - (data.len() % block_size);
         let mut padded_data = data.to_vec();
         padded_data.extend(std::iter::repeat(padding_len as u8).take(padding_len));
-        
+
         // Encrypt each block
         let mut result = Vec::with_capacity(padded_data.len());
         for chunk in padded_data.chunks(block_size) {
@@ -192,7 +205,7 @@ impl SmartfrenProvider {
             cipher.encrypt_block(&mut block);
             result.extend_from_slice(&block);
         }
-        
+
         Ok(result)
     }
 
@@ -221,7 +234,13 @@ impl SmartfrenProvider {
         }
 
         let obj = data.as_object()?;
-        for key in ["message", "msg", "description", "statusMessage", "resultMessage"] {
+        for key in [
+            "message",
+            "msg",
+            "description",
+            "statusMessage",
+            "resultMessage",
+        ] {
             if let Some(value) = obj.get(key) {
                 if let Some(msg) = Self::value_as_message(value) {
                     return Some(msg);
@@ -246,10 +265,7 @@ impl SmartfrenProvider {
         )
     }
 
-    fn build_redeem_message(
-        response: &SmartfrenRedeemResponse,
-        success: bool,
-    ) -> Option<String> {
+    fn build_redeem_message(response: &SmartfrenRedeemResponse, success: bool) -> Option<String> {
         let status = response
             .status
             .as_deref()
@@ -260,18 +276,21 @@ impl SmartfrenProvider {
             .or_else(|| Self::extract_message_from_data(response.data.as_ref()));
 
         if success {
-            return provider_message.or_else(|| Some("redeem voucher berhasil".to_string()));
+            return provider_message.or_else(|| Some("Success".to_string()));
         }
 
         let base = if let Some(msg) = provider_message {
             let lower = msg.to_ascii_lowercase();
             if lower.contains("pin voucher") {
-                format!("redeem voucher gagal, PIN voucher kemungkinan salah/tidak valid: {}", msg)
+                format!(
+                    "PIN voucher kemungkinan salah/tidak valid: {}",
+                    msg
+                )
             } else {
-                format!("redeem voucher gagal: {}", msg)
+                msg
             }
         } else {
-            "redeem voucher gagal".to_string()
+            "Provider request failed".to_string()
         };
 
         if let Some(status) = status {
@@ -299,9 +318,8 @@ impl SmartfrenProvider {
 
         let explicit_success = response.success.unwrap_or(false);
 
-        let success = http_status.is_success()
-            && !status_failure
-            && (explicit_success || status_success);
+        let success =
+            http_status.is_success() && !status_failure && (explicit_success || status_success);
 
         let message = Self::build_redeem_message(response, success);
         (success, message)
@@ -318,30 +336,36 @@ impl SmartfrenProvider {
             .and_then(|v| v.as_str())
             .map(String::from)
     }
-    
+
     /// Perform handshake to get session token
     async fn handshake(&self, mdn: &str) -> Result<String, ProviderError> {
         let encrypted_mdn = Self::encrypt_payload(mdn, SECRET_KEY)?;
-        
+
         tracing::debug!("Smartfren: Handshake with encrypted MDN");
-        
+
         let url = format!("{}/hand-shake", BASE_URL);
-        let resp = self.client.post(&url)
+        let resp = self
+            .client
+            .post(&url)
             .headers(default_headers(mdn))
             .json(&serde_json::json!({ "mdn": encrypted_mdn }))
             .send()
             .await?;
-        
-        let handshake_resp: HandshakeResponse = resp.json().await
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse handshake: {}", e)))?;
-        
+
+        let handshake_resp: HandshakeResponse = resp.json().await.map_err(|e| {
+            ProviderError::InvalidResponse(format!("Failed to parse handshake: {}", e))
+        })?;
+
         if !handshake_resp.success {
             return Err(ProviderError::AuthError(
-                handshake_resp.message.unwrap_or_else(|| "Handshake failed".to_string())
+                handshake_resp
+                    .message
+                    .unwrap_or_else(|| "Handshake failed".to_string()),
             ));
         }
-        
-        handshake_resp.data
+
+        handshake_resp
+            .data
             .and_then(|d| d.token)
             .ok_or_else(|| ProviderError::AuthError("No token in handshake response".to_string()))
     }
@@ -358,12 +382,12 @@ impl ProviderApi for SmartfrenProvider {
     fn name(&self) -> &'static str {
         "Smartfren"
     }
-    
+
     async fn check_voucher(&self, barcode: &str) -> Result<CheckResponse, ProviderError> {
         // Smartfren doesn't have a public check API based on the JS code
         // Return not implemented
         tracing::warn!("Smartfren: check_voucher not available (no public API)");
-        
+
         Ok(CheckResponse {
             success: false,
             serial_number: barcode.to_string(),
@@ -374,21 +398,31 @@ impl ProviderApi for SmartfrenProvider {
             raw_response: None,
         })
     }
-    
-    async fn redeem_voucher(&self, msisdn: &str, serial_number: &str) -> Result<RedeemResponse, ProviderError> {
-        tracing::info!("Smartfren: Redeeming voucher {} for {}", serial_number, msisdn);
-        
+
+    async fn redeem_voucher(
+        &self,
+        msisdn: &str,
+        serial_number: &str,
+    ) -> Result<RedeemResponse, ProviderError> {
+        tracing::info!(
+            "Smartfren: Redeeming voucher {} for {}",
+            serial_number,
+            msisdn
+        );
+
         // Step 1: Handshake to get session token
         let session_token = self.handshake(msisdn).await?;
         tracing::debug!("Smartfren: Got session token");
-        
+
         // Step 2: Encrypt voucher code and session token
         let encrypted_voucher = Self::encrypt_payload(serial_number, SECRET_KEY)?;
         let encrypted_session = Self::encrypt_payload(&session_token, SECRET_KEY)?;
-        
+
         // Step 3: Send redeem request
         let url = format!("{}/voucher-code", BASE_URL);
-        let resp = self.client.post(&url)
+        let resp = self
+            .client
+            .post(&url)
             .headers(default_headers(msisdn))
             .json(&serde_json::json!({
                 "voucherCode": encrypted_voucher,
@@ -396,19 +430,21 @@ impl ProviderApi for SmartfrenProvider {
             }))
             .send()
             .await?;
-        
+
         let status_code = resp.status();
         let raw_text = resp.text().await?;
-        
+
         tracing::info!("Smartfren redeem response: {}", raw_text);
         tracing::debug!("Smartfren redeem response: {}", raw_text);
-        
-        let redeem_resp: SmartfrenRedeemResponse = serde_json::from_str(&raw_text)
-            .map_err(|e| ProviderError::InvalidResponse(format!("Failed to parse response: {}", e)))?;
-        
+
+        let redeem_resp: SmartfrenRedeemResponse =
+            serde_json::from_str(&raw_text).map_err(|e| {
+                ProviderError::InvalidResponse(format!("Failed to parse response: {}", e))
+            })?;
+
         let raw_json: Option<serde_json::Value> = serde_json::from_str(&raw_text).ok();
         let (success, message) = Self::map_redeem_outcome(status_code, &redeem_resp);
-        
+
         Ok(RedeemResponse {
             success,
             msisdn: msisdn.to_string(),
@@ -423,22 +459,22 @@ impl ProviderApi for SmartfrenProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_evp_bytes_to_key() {
         let password = b"testpassword";
         let salt = [1u8, 2, 3, 4, 5, 6, 7, 8];
         let (key, iv) = SmartfrenProvider::evp_bytes_to_key(password, &salt, 32, 16);
-        
+
         assert_eq!(key.len(), 32);
         assert_eq!(iv.len(), 16);
     }
-    
+
     #[test]
     fn test_encrypt_payload() {
         let result = SmartfrenProvider::encrypt_payload("test", SECRET_KEY);
         assert!(result.is_ok());
-        
+
         let encrypted = result.unwrap();
         // Should be base64 and start with "Salted__" when decoded
         let decoded = BASE64.decode(&encrypted).unwrap();
@@ -453,14 +489,13 @@ mod tests {
         let (key, iv) = SmartfrenProvider::evp_bytes_to_key(SECRET_KEY.as_bytes(), &salt, 32, 16);
 
         let expected_key = vec![
-            0x73, 0xA2, 0x65, 0xBE, 0xCD, 0x10, 0x85, 0x4E,
-            0x59, 0xC1, 0xF6, 0xDE, 0x8A, 0x66, 0x41, 0xB2,
-            0x4A, 0xC3, 0x8D, 0x70, 0x63, 0x48, 0xB7, 0x6F,
-            0xCC, 0x8D, 0xF5, 0x74, 0x1C, 0x59, 0x09, 0x8D,
+            0x73, 0xA2, 0x65, 0xBE, 0xCD, 0x10, 0x85, 0x4E, 0x59, 0xC1, 0xF6, 0xDE, 0x8A, 0x66,
+            0x41, 0xB2, 0x4A, 0xC3, 0x8D, 0x70, 0x63, 0x48, 0xB7, 0x6F, 0xCC, 0x8D, 0xF5, 0x74,
+            0x1C, 0x59, 0x09, 0x8D,
         ];
         let expected_iv = vec![
-            0x2B, 0x70, 0x73, 0x99, 0xD5, 0xC0, 0x70, 0xC6,
-            0xE0, 0xB8, 0x5D, 0x17, 0x6A, 0x93, 0xBA, 0xCA,
+            0x2B, 0x70, 0x73, 0x99, 0xD5, 0xC0, 0x70, 0xC6, 0xE0, 0xB8, 0x5D, 0x17, 0x6A, 0x93,
+            0xBA, 0xCA,
         ];
 
         assert_eq!(key, expected_key);
@@ -518,11 +553,15 @@ mod tests {
         assert_eq!(resp.status.as_deref(), Some("-1"));
         assert_eq!(
             resp.msg.as_deref(),
-            Some("Maaf, topup Anda gagal. Silahkan periksa kembali PIN voucher Anda atau hub customer service kami")
+            Some(
+                "Maaf, topup Anda gagal. Silahkan periksa kembali PIN voucher Anda atau hub customer service kami"
+            )
         );
         assert_eq!(
             resp.data.as_ref().and_then(|v| v.as_str()),
-            Some("Maaf, topup Anda gagal. Silahkan periksa kembali PIN voucher Anda atau hub customer service kami")
+            Some(
+                "Maaf, topup Anda gagal. Silahkan periksa kembali PIN voucher Anda atau hub customer service kami"
+            )
         );
     }
 
@@ -574,4 +613,3 @@ mod tests {
         );
     }
 }
-

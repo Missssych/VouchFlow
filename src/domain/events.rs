@@ -1,9 +1,12 @@
 //! Event types for the application
-//! 
+//!
 //! Events are published by DB Writer after successful commits
 
+use super::models::{
+    LogEntry, ProductSummary, StokAddonSummary, StokVoucherSummary, TransactionStatus,
+    TransactionSummary,
+};
 use serde::{Deserialize, Serialize};
-use super::models::{TransactionStatus, TransactionSummary, LogEntry, ProductSummary, StokVoucherSummary, StokAddonSummary};
 
 /// Domain events published after DB commit
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,14 +21,9 @@ pub enum DomainEvent {
         summary: TransactionSummary,
     },
     /// Log entry appended
-    LogAppended {
-        seq: u64,
-        entry: LogEntry,
-    },
+    LogAppended { seq: u64, entry: LogEntry },
     /// All logs cleared
-    LogsCleared {
-        seq: u64,
-    },
+    LogsCleared { seq: u64 },
     /// Configuration changed
     ConfigChanged {
         seq: u64,
@@ -33,20 +31,11 @@ pub enum DomainEvent {
         value: String,
     },
     /// Product created
-    ProductCreated {
-        seq: u64,
-        product: ProductSummary,
-    },
+    ProductCreated { seq: u64, product: ProductSummary },
     /// Product updated
-    ProductUpdated {
-        seq: u64,
-        product: ProductSummary,
-    },
+    ProductUpdated { seq: u64, product: ProductSummary },
     /// Product(s) deleted
-    ProductDeleted {
-        seq: u64,
-        ids: Vec<i64>,
-    },
+    ProductDeleted { seq: u64, ids: Vec<i64> },
     /// Stok voucher created
     StokVoucherCreated {
         seq: u64,
@@ -58,10 +47,7 @@ pub enum DomainEvent {
         voucher: StokVoucherSummary,
     },
     /// Stok voucher(s) deleted
-    StokVoucherDeleted {
-        seq: u64,
-        ids: Vec<i64>,
-    },
+    StokVoucherDeleted { seq: u64, ids: Vec<i64> },
     /// Stok voucher status changed
     StokStatusChanged {
         seq: u64,
@@ -104,10 +90,7 @@ pub enum UiEvent {
     /// Transaction list update
     TransactionsUpdated(Vec<TransactionSummary>),
     /// Configuration loaded
-    ConfigLoaded {
-        key: String,
-        value: String,
-    },
+    ConfigLoaded { key: String, value: String },
     /// Products list updated
     ProductsUpdated(Vec<ProductSummary>),
     /// Stok voucher list updated (active stocks)
@@ -117,4 +100,3 @@ pub enum UiEvent {
     /// Stok addon summary updated
     StokAddonSummaryUpdated(Vec<StokAddonSummary>),
 }
-

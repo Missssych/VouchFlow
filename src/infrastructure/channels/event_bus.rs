@@ -1,7 +1,7 @@
 //! Event Bus - DB Writer to Store/UI broadcast
 
-use tokio::sync::broadcast;
 use crate::domain::DomainEvent;
+use tokio::sync::broadcast;
 
 /// Event sender (broadcast)
 pub type EventSender = broadcast::Sender<DomainEvent>;

@@ -1,5 +1,5 @@
 use std::{collections::HashMap, path::PathBuf};
- 
+
 fn main() {
     let library = HashMap::from([(
         "lucide".to_string(),

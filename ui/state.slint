@@ -137,6 +137,7 @@ export global StokState {
     callback check-expired(string, string);  // provider, barcode → fills expired_date
     callback load-stock-for-edit(int);
     callback load-stock-summary();
+    callback next-barcode();  // increment form barcode for next input
     
     // Range-based operations for multi-selection
     // args: start_index, end_index, all_ids

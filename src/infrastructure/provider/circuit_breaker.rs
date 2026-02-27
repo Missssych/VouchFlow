@@ -1,18 +1,18 @@
 //! Circuit Breaker pattern for fault tolerance
-//! 
+//!
 //! Prevents cascading failures when provider is unavailable
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
 /// Circuit breaker states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,     // Normal operation
-    Open,       // Failing, reject requests
-    HalfOpen,   // Testing if service recovered
+    Closed,   // Normal operation
+    Open,     // Failing, reject requests
+    HalfOpen, // Testing if service recovered
 }
 
 /// Circuit breaker configuration
@@ -56,18 +56,18 @@ impl CircuitBreaker {
             last_failure_time: AtomicU64::new(0),
         }
     }
-    
+
     /// Check if request is allowed
     pub async fn is_allowed(&self) -> bool {
         let state = *self.state.read().await;
-        
+
         match state {
             CircuitState::Closed => true,
             CircuitState::Open => {
                 // Check if we should try half-open
                 let last_failure = self.last_failure_time.load(Ordering::Relaxed);
                 let now = Self::epoch_secs();
-                
+
                 if now.saturating_sub(last_failure) >= self.config.open_duration.as_secs() {
                     // Transition to half-open
                     *self.state.write().await = CircuitState::HalfOpen;
@@ -80,11 +80,11 @@ impl CircuitBreaker {
             CircuitState::HalfOpen => true,
         }
     }
-    
+
     /// Record a successful operation
     pub async fn record_success(&self) {
         let state = *self.state.read().await;
-        
+
         match state {
             CircuitState::Closed => {
                 self.failure_count.store(0, Ordering::Relaxed);
@@ -101,37 +101,33 @@ impl CircuitBreaker {
             CircuitState::Open => {}
         }
     }
-    
+
     /// Record a failed operation
     pub async fn record_failure(&self) {
         let state = *self.state.read().await;
-        
+
         match state {
             CircuitState::Closed => {
                 let count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
                 if count >= self.config.failure_threshold {
                     // Open circuit
                     *self.state.write().await = CircuitState::Open;
-                    self.last_failure_time.store(
-                        Self::epoch_secs(),
-                        Ordering::Relaxed,
-                    );
+                    self.last_failure_time
+                        .store(Self::epoch_secs(), Ordering::Relaxed);
                     tracing::warn!("Circuit breaker opened after {} failures", count);
                 }
             }
             CircuitState::HalfOpen => {
                 // Go back to open
                 *self.state.write().await = CircuitState::Open;
-                self.last_failure_time.store(
-                    Self::epoch_secs(),
-                    Ordering::Relaxed,
-                );
+                self.last_failure_time
+                    .store(Self::epoch_secs(), Ordering::Relaxed);
                 tracing::warn!("Circuit breaker reopened from half-open");
             }
             CircuitState::Open => {}
         }
     }
-    
+
     /// Get current state
     pub async fn state(&self) -> CircuitState {
         *self.state.read().await

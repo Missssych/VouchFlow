@@ -1,8 +1,8 @@
 //! Stok Voucher Service
-//! 
+//!
 //! Read operations for stok voucher (Master Data stock management)
 
-use crate::domain::{StokVoucherSummary, StokAddonSummary, DomainError};
+use crate::domain::{DomainError, StokAddonSummary, StokVoucherSummary};
 use crate::infrastructure::database::Database;
 use rusqlite::Connection;
 
@@ -22,20 +22,21 @@ pub async fn get_active_stocks(
     db.with_reader(|conn: &Connection| {
         let mut conditions = vec!["status = 'ACTIVE'".to_string()];
         let mut params: Vec<String> = Vec::new();
-        
+
         if let Some(provider) = provider_filter.filter(|p| *p != "Semua") {
             conditions.push("provider = ?".to_string());
             params.push(provider.to_string());
         }
-        
+
         if let Some(q) = search.filter(|s| !s.is_empty()) {
-            conditions.push("(barcode LIKE ? OR serial_number LIKE ? OR kode_addon LIKE ?)".to_string());
+            conditions
+                .push("(barcode LIKE ? OR serial_number LIKE ? OR kode_addon LIKE ?)".to_string());
             let pattern = format!("%{}%", q);
             params.push(pattern.clone());
             params.push(pattern.clone());
             params.push(pattern);
         }
-        
+
         let sql = format!(
             "SELECT id, provider, kode_addon, barcode, serial_number, 
                     COALESCE(expired_date, '') as expired_date, status, created_at
@@ -44,17 +45,17 @@ pub async fn get_active_stocks(
              ORDER BY created_at DESC",
             conditions.join(" AND ")
         );
-        
+
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter()
-            .map(|p| p as &dyn rusqlite::ToSql)
-            .collect();
-        
+        let param_refs: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+
         let rows = stmt.query_map(param_refs.as_slice(), map_row)?;
         let result: Vec<StokVoucherSummary> = rows.filter_map(|r| r.ok()).collect();
-        
+
         Ok(result)
-    }).await
+    })
+    .await
 }
 
 /// Get used stock vouchers (status = USED) with date range filter
@@ -68,17 +69,17 @@ pub async fn get_used_stocks(
     db.with_reader(|conn: &Connection| {
         let mut conditions = vec!["status = 'USED'".to_string()];
         let mut params: Vec<String> = Vec::new();
-        
+
         if let Some(provider) = provider_filter.filter(|p| *p != "Semua") {
             conditions.push("provider = ?".to_string());
             params.push(provider.to_string());
         }
-        
+
         if let Some(from) = date_from.filter(|s| !s.is_empty()) {
             conditions.push("used_at >= ?".to_string());
             params.push(from.to_string());
         }
-        
+
         if let Some(to) = date_to.filter(|s| !s.is_empty()) {
             if let Some(next_day) = next_day_ymd(to) {
                 conditions.push("used_at < ?".to_string());
@@ -89,34 +90,35 @@ pub async fn get_used_stocks(
                 params.push(to.to_string());
             }
         }
-        
+
         if let Some(q) = search.filter(|s| !s.is_empty()) {
-            conditions.push("(barcode LIKE ? OR serial_number LIKE ? OR kode_addon LIKE ?)".to_string());
+            conditions
+                .push("(barcode LIKE ? OR serial_number LIKE ? OR kode_addon LIKE ?)".to_string());
             let pattern = format!("%{}%", q);
             params.push(pattern.clone());
             params.push(pattern.clone());
             params.push(pattern);
         }
-        
+
         let sql = format!(
             "SELECT id, provider, kode_addon, barcode, serial_number, 
-                    COALESCE(expired_date, '') as expired_date, status, created_at
+                    COALESCE(expired_date, '') as expired_date, status, COALESCE(used_at, created_at, '') as used_at
              FROM stok_voucher 
              WHERE {}
              ORDER BY used_at DESC",
             conditions.join(" AND ")
         );
-        
+
         let mut stmt = conn.prepare(&sql)?;
-        let param_refs: Vec<&dyn rusqlite::ToSql> = params.iter()
-            .map(|p| p as &dyn rusqlite::ToSql)
-            .collect();
-        
+        let param_refs: Vec<&dyn rusqlite::ToSql> =
+            params.iter().map(|p| p as &dyn rusqlite::ToSql).collect();
+
         let rows = stmt.query_map(param_refs.as_slice(), map_row)?;
         let result: Vec<StokVoucherSummary> = rows.filter_map(|r| r.ok()).collect();
-        
+
         Ok(result)
-    }).await
+    })
+    .await
 }
 
 /// Get stock by ID
@@ -132,38 +134,38 @@ pub async fn get_stock_by_id(
             [id],
             map_row,
         );
-        
+
         match result {
             Ok(voucher) => Ok(Some(voucher)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(DomainError::DatabaseError(e.to_string())),
         }
-    }).await
+    })
+    .await
 }
 
 /// Get stock addon summary (count per kode_addon)
-pub async fn get_stock_addon_summary(
-    db: &Database,
-) -> Result<Vec<StokAddonSummary>, DomainError> {
+pub async fn get_stock_addon_summary(db: &Database) -> Result<Vec<StokAddonSummary>, DomainError> {
     db.with_reader(|conn: &Connection| {
         let mut stmt = conn.prepare(
             "SELECT kode_addon, COUNT(*) as count
              FROM stok_voucher 
              WHERE status = 'ACTIVE'
              GROUP BY kode_addon
-             ORDER BY count DESC"
+             ORDER BY count DESC",
         )?;
-        
+
         let rows = stmt.query_map([], |row: &rusqlite::Row| {
             Ok(StokAddonSummary {
                 kode_addon: row.get(0)?,
                 count: row.get(1)?,
             })
         })?;
-        
+
         let result: Vec<StokAddonSummary> = rows.filter_map(|r| r.ok()).collect();
         Ok(result)
-    }).await
+    })
+    .await
 }
 
 /// Helper function to map row to StokVoucherSummary
@@ -179,4 +181,3 @@ fn map_row(row: &rusqlite::Row) -> rusqlite::Result<StokVoucherSummary> {
         created_at: row.get(7)?,
     })
 }
-

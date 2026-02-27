@@ -43,12 +43,12 @@ impl AppConfig {
     pub fn from_env() -> Self {
         Self::default()
     }
-    
+
     /// Get full server address
     pub fn server_addr(&self) -> String {
         format!("{}:{}", self.server_host, self.server_port)
     }
-    
+
     /// Get full terminal address
     pub fn terminal_addr(&self) -> String {
         format!("{}:{}", self.terminal_host, self.terminal_port)

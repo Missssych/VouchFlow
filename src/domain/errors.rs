@@ -7,31 +7,31 @@ use thiserror::Error;
 pub enum DomainError {
     #[error("Invalid product code: {0}")]
     InvalidProductCode(String),
-    
+
     #[error("Transaction not found: {0}")]
     TransactionNotFound(String),
-    
+
     #[error("Duplicate request: {0}")]
     DuplicateRequest(String),
-    
+
     #[error("Insufficient stock for product: {0}")]
     InsufficientStock(String),
-    
+
     #[error("Stock reservation failed: {0}")]
     ReservationFailed(String),
-    
+
     #[error("Provider error: {0}")]
     ProviderError(String),
-    
+
     #[error("Timeout: {0}")]
     Timeout(String),
-    
+
     #[error("Database error: {0}")]
     DatabaseError(String),
-    
+
     #[error("Channel error: {0}")]
     ChannelError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
 }

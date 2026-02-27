@@ -217,21 +217,19 @@ impl TableModelInner {
                 }
 
                 data.sort_by(|a, b| {
-                    let text_a = a
-                        .0
-                        .row_data(column_index)
-                        .map(|item| item.text.to_string())
-                        .unwrap_or_default();
-                    let text_b = b
-                        .0
-                        .row_data(column_index)
-                        .map(|item| item.text.to_string())
-                        .unwrap_or_default();
+                    let text_a =
+                        a.0.row_data(column_index)
+                            .map(|item| item.text.to_string())
+                            .unwrap_or_default();
+                    let text_b =
+                        b.0.row_data(column_index)
+                            .map(|item| item.text.to_string())
+                            .unwrap_or_default();
 
                     let cmp = match (text_a.parse::<f64>(), text_b.parse::<f64>()) {
-                        (Ok(num_a), Ok(num_b)) => {
-                            num_a.partial_cmp(&num_b).unwrap_or(std::cmp::Ordering::Equal)
-                        }
+                        (Ok(num_a), Ok(num_b)) => num_a
+                            .partial_cmp(&num_b)
+                            .unwrap_or(std::cmp::Ordering::Equal),
                         _ => text_a.cmp(&text_b),
                     };
 
@@ -251,4 +249,3 @@ impl TableModelInner {
         }
     }
 }
-

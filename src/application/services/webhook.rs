@@ -19,22 +19,23 @@ impl WebhookClient {
             .timeout(Duration::from_secs(timeout_secs))
             .build()
             .expect("Failed to create HTTP client");
-        
+
         Self {
             client,
             max_retries: 3,
         }
     }
-    
+
     /// Send webhook notification (raw text body)
     /// Returns true if successful
     pub async fn send(&self, url: &str, body: &str) -> bool {
         let mut attempts = 0;
-        
+
         while attempts < self.max_retries {
             attempts += 1;
-            
-            match self.client
+
+            match self
+                .client
                 .post(url)
                 .header("Content-Type", "text/plain")
                 .body(body.to_string())
@@ -67,14 +68,14 @@ impl WebhookClient {
                     );
                 }
             }
-            
+
             // Exponential backoff: 1s, 2s, 4s
             if attempts < self.max_retries {
                 let delay = Duration::from_secs(1 << (attempts - 1));
                 tokio::time::sleep(delay).await;
             }
         }
-        
+
         tracing::error!(
             url = %url,
             "Webhook failed after {} attempts",
@@ -82,7 +83,7 @@ impl WebhookClient {
         );
         false
     }
-    
+
     /// Build webhook payload for transaction result
     pub fn build_payload(
         request_id: &str,
@@ -106,16 +107,11 @@ impl WebhookClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_build_payload() {
-        let payload = WebhookClient::build_payload(
-            "TRX001",
-            "tx-123",
-            "SUCCESS",
-            Some("00"),
-            Some("OK"),
-        );
+        let payload =
+            WebhookClient::build_payload("TRX001", "tx-123", "SUCCESS", Some("00"), Some("OK"));
         assert_eq!(payload, "TRX001|tx-123|SUCCESS|00|OK");
     }
 }

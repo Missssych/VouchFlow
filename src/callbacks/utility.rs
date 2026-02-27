@@ -2,15 +2,14 @@
 //!
 //! Registers all UtilityState callback handlers for the Slint UI.
 
-use slint::{ComponentHandle, Global, Model, ModelRc, VecModel};
 use crate::{AppWindow, UtilityState};
+use slint::{ComponentHandle, Global, Model, ModelRc, VecModel};
 
 /// Register all utility-related callbacks on the UI
-pub fn register(
-    ui: &AppWindow,
-    rt: &tokio::runtime::Handle,
-) {
-    use vouchflow::application::providers::{ByuProvider, TelkomselProvider, SmartfrenProvider, ProviderApi};
+pub fn register(ui: &AppWindow, rt: &tokio::runtime::Handle) {
+    use vouchflow::application::providers::{
+        ByuProvider, ProviderApi, SmartfrenProvider, TelkomselProvider,
+    };
 
     let rt_handle = rt.clone();
     let redeem_dialog_session = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -37,11 +36,20 @@ pub fn register(
 
             rth.spawn(async move {
                 let result = match provider.as_str() {
-                    "Byu" => { let p = ByuProvider::new(); p.check_voucher(&barcode).await }
-                    "Telkomsel" => { let p = TelkomselProvider::new(); p.check_voucher(&barcode).await }
-                    _ => Err(vouchflow::application::providers::ProviderError::UnknownProvider(
-                        format!("Provider {} tidak mendukung cek voucher", provider)
-                    )),
+                    "Byu" => {
+                        let p = ByuProvider::new();
+                        p.check_voucher(&barcode).await
+                    }
+                    "Telkomsel" => {
+                        let p = TelkomselProvider::new();
+                        p.check_voucher(&barcode).await
+                    }
+                    _ => Err(
+                        vouchflow::application::providers::ProviderError::UnknownProvider(format!(
+                            "Provider {} tidak mendukung cek voucher",
+                            provider
+                        )),
+                    ),
                 };
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = ui_weak.upgrade() {
@@ -50,20 +58,23 @@ pub fn register(
                             Ok(resp) => {
                                 UtilityState::get(&ui).set_single_result_status(resp.status.into());
                                 UtilityState::get(&ui).set_single_result_description(
-                                    resp.product_name.unwrap_or_default().into()
+                                    resp.product_name.unwrap_or_default().into(),
                                 );
                                 UtilityState::get(&ui).set_single_result_expiry(
-                                    resp.expiry_date.unwrap_or_default().into()
+                                    resp.expiry_date.unwrap_or_default().into(),
                                 );
                                 if let Some(raw) = &resp.raw_response {
                                     UtilityState::get(&ui).set_single_result_raw(
-                                        serde_json::to_string_pretty(raw).unwrap_or_default().into()
+                                        serde_json::to_string_pretty(raw)
+                                            .unwrap_or_default()
+                                            .into(),
                                     );
                                 }
                             }
                             Err(e) => {
                                 UtilityState::get(&ui).set_single_result_status("ERROR".into());
-                                UtilityState::get(&ui).set_single_result_message(format!("{}", e).into());
+                                UtilityState::get(&ui)
+                                    .set_single_result_message(format!("{}", e).into());
                             }
                         }
                     }
@@ -193,12 +204,24 @@ pub fn register(
 
             rth.spawn(async move {
                 let result = match provider.as_str() {
-                    "Byu" => { let p = ByuProvider::new(); p.redeem_voucher(&msisdn, &voucher_code).await }
-                    "Telkomsel" => { let p = TelkomselProvider::new(); p.redeem_voucher(&msisdn, &voucher_code).await }
-                    "Smartfren" => { let p = SmartfrenProvider::new(); p.redeem_voucher(&msisdn, &voucher_code).await }
-                    _ => Err(vouchflow::application::providers::ProviderError::UnknownProvider(
-                        format!("Provider {} tidak dikenal", provider)
-                    )),
+                    "Byu" => {
+                        let p = ByuProvider::new();
+                        p.redeem_voucher(&msisdn, &voucher_code).await
+                    }
+                    "Telkomsel" => {
+                        let p = TelkomselProvider::new();
+                        p.redeem_voucher(&msisdn, &voucher_code).await
+                    }
+                    "Smartfren" => {
+                        let p = SmartfrenProvider::new();
+                        p.redeem_voucher(&msisdn, &voucher_code).await
+                    }
+                    _ => Err(
+                        vouchflow::application::providers::ProviderError::UnknownProvider(format!(
+                            "Provider {} tidak dikenal",
+                            provider
+                        )),
+                    ),
                 };
 
                 let ui_weak3 = ui_weak.clone();
@@ -212,14 +235,21 @@ pub fn register(
                             Ok(resp) => {
                                 state.set_redeem_result_success(resp.success);
                                 state.set_redeem_result_message(
-                                    resp.message.unwrap_or_else(||
-                                        if resp.success { "Redeem berhasil".to_string() }
-                                        else { "Redeem gagal".to_string() }
-                                    ).into()
+                                    resp.message
+                                        .unwrap_or_else(|| {
+                                            if resp.success {
+                                                "Redeem berhasil".to_string()
+                                            } else {
+                                                "Redeem gagal".to_string()
+                                            }
+                                        })
+                                        .into(),
                                 );
                                 if let Some(raw) = &resp.raw_response {
                                     state.set_redeem_result_raw(
-                                        serde_json::to_string_pretty(raw).unwrap_or_default().into()
+                                        serde_json::to_string_pretty(raw)
+                                            .unwrap_or_default()
+                                            .into(),
                                     );
                                 }
                             }
@@ -232,25 +262,42 @@ pub fn register(
                         state.set_redeem_dialog_open(true);
 
                         let session_id = redeem_dialog_session_ref
-                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                            + 1;
                         let ui_weak_countdown = ui_weak3.clone();
                         let redeem_dialog_session_task = redeem_dialog_session_ref.clone();
                         countdown_rt.spawn(async move {
                             for remaining in (0..5).rev() {
                                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                if redeem_dialog_session_task.load(std::sync::atomic::Ordering::SeqCst) != session_id { break; }
+                                if redeem_dialog_session_task
+                                    .load(std::sync::atomic::Ordering::SeqCst)
+                                    != session_id
+                                {
+                                    break;
+                                }
                                 let ui_weak_tick = ui_weak_countdown.clone();
                                 let redeem_dialog_session_tick = redeem_dialog_session_task.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
-                                    if redeem_dialog_session_tick.load(std::sync::atomic::Ordering::SeqCst) != session_id { return; }
+                                    if redeem_dialog_session_tick
+                                        .load(std::sync::atomic::Ordering::SeqCst)
+                                        != session_id
+                                    {
+                                        return;
+                                    }
                                     if let Some(ui) = ui_weak_tick.upgrade() {
                                         let state = UtilityState::get(&ui);
-                                        if !state.get_redeem_dialog_open() { return; }
+                                        if !state.get_redeem_dialog_open() {
+                                            return;
+                                        }
                                         state.set_redeem_dialog_countdown(remaining);
-                                        if remaining == 0 { state.set_redeem_dialog_open(false); }
+                                        if remaining == 0 {
+                                            state.set_redeem_dialog_open(false);
+                                        }
                                     }
                                 });
-                                if remaining == 0 { break; }
+                                if remaining == 0 {
+                                    break;
+                                }
                             }
                         });
                     }
@@ -283,7 +330,7 @@ pub fn register(
                 if let Some(ui) = ui_handle_clone.upgrade() {
                     let state = UtilityState::get(&ui);
                     let model = state.get_bulk_results();
-                    
+
                     let mut data: Vec<slint::ModelRc<slint::StandardListViewItem>> = Vec::new();
                     let count = model.row_count();
                     for i in 0..count {
@@ -291,28 +338,32 @@ pub fn register(
                             data.push(row);
                         }
                     }
-                    
+
                     if data.len() <= 1 {
                         return; // Nothing to sort
                     }
-                    
+
                     data.sort_by(|a, b| {
-                        let text_a = a.row_data(column_index).map(|item| item.text.to_string()).unwrap_or_default();
-                        let text_b = b.row_data(column_index).map(|item| item.text.to_string()).unwrap_or_default();
+                        let text_a = a
+                            .row_data(column_index)
+                            .map(|item| item.text.to_string())
+                            .unwrap_or_default();
+                        let text_b = b
+                            .row_data(column_index)
+                            .map(|item| item.text.to_string())
+                            .unwrap_or_default();
 
                         // Try parsing as float for numeric sorting
                         let cmp = match (text_a.parse::<f64>(), text_b.parse::<f64>()) {
-                            (Ok(num_a), Ok(num_b)) => num_a.partial_cmp(&num_b).unwrap_or(std::cmp::Ordering::Equal),
+                            (Ok(num_a), Ok(num_b)) => num_a
+                                .partial_cmp(&num_b)
+                                .unwrap_or(std::cmp::Ordering::Equal),
                             _ => text_a.cmp(&text_b),
                         };
 
-                        if ascending {
-                            cmp
-                        } else {
-                            cmp.reverse()
-                        }
+                        if ascending { cmp } else { cmp.reverse() }
                     });
-                    
+
                     // Create a new VecModel and set it (simpler than modifying in-place for this case as it doesn't have IDs)
                     state.set_bulk_results(slint::ModelRc::new(slint::VecModel::from(data)));
                 }
@@ -320,4 +371,3 @@ pub fn register(
         });
     }
 }
-

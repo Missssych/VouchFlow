@@ -4,11 +4,11 @@
 //! UI never directly reads from database - only from Central Store.
 
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use std::time::Duration;
+use tokio::sync::broadcast;
 
-use crate::domain::{DomainEvent, UiEvent, LogEntry};
 use crate::application::store::{CentralStore, MenuType};
+use crate::domain::{DomainEvent, LogEntry, UiEvent};
 
 /// UI Event listener that bridges domain events to UI updates
 pub struct UiBridge {
@@ -41,21 +41,25 @@ impl UiBridge {
             command_rx,
         }
     }
-    
+
     /// Run the UI bridge loop
-    /// 
+    ///
     /// This listens for domain events and updates the central store,
     /// then sends UI events via invoke_from_event_loop
     pub async fn run<F>(mut self, ui_callback: F)
     where
         F: Fn(UiEvent) + Send + Sync + 'static,
     {
-        tracing::info!("UI Bridge started with batch interval: {}ms", self.batch_interval_ms);
-        
+        tracing::info!(
+            "UI Bridge started with batch interval: {}ms",
+            self.batch_interval_ms
+        );
+
         let callback = Arc::new(ui_callback);
-        
+
         // Interval for rendering UI debouncing
-        let mut render_interval = tokio::time::interval(Duration::from_millis(self.batch_interval_ms));
+        let mut render_interval =
+            tokio::time::interval(Duration::from_millis(self.batch_interval_ms));
         render_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Keep track of which menu was last rendered to avoid duplicate renders
@@ -72,7 +76,7 @@ impl UiBridge {
                         }
                         Err(broadcast::error::RecvError::Lagged(n)) => {
                             tracing::warn!("UI Bridge event channel lagged {} events. But it's OK, state will be resync'd via store.", n);
-                            // We might have missed some events, but the store state might have been 
+                            // We might have missed some events, but the store state might have been
                             // updated by another consumer or next events. Flag render anyway.
                             needs_render = true;
                         }
@@ -81,7 +85,7 @@ impl UiBridge {
                         }
                     }
                 }
-                
+
                 // 2. Receive bridge command (Direct UI action / Menu Change)
                 cmd = self.command_rx.recv() => {
                     match cmd {
@@ -111,17 +115,17 @@ impl UiBridge {
                 }
             }
         }
-        
+
         tracing::info!("UI Bridge stopped");
     }
-    
+
     /// Extract entire state for the active menu and send it to Slint at once
     async fn flush_ui_state<F>(&self, callback: Arc<F>)
     where
         F: Fn(UiEvent) + Send + Sync + 'static,
     {
         let active_menu = self.store.get_active_menu().await;
-        
+
         match active_menu {
             MenuType::Dashboard => {
                 let counters = self.store.get_monitoring_counters().await;
@@ -151,7 +155,7 @@ impl UiBridge {
 }
 
 /// Helper function to send UI update via Slint's invoke_from_event_loop
-/// 
+///
 /// Usage:
 /// ```rust
 /// let ui_handle = ui.as_weak();

@@ -1,4 +1,7 @@
-#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
 
 //! App-Voucher - Voucher Transaction Application
 //!
@@ -12,22 +15,19 @@
 //! - Slint UI with event bridge
 
 use i_slint_backend_winit::WinitWindowAccessor;
-use slint::Model;  // For ModelRc::iter()
+use slint::Model; // For ModelRc::iter()
 
 // Re-export library
 use vouchflow::{
+    application::{CentralStore, Orchestrator, store::MenuType},
     config::AppConfig,
     infrastructure::{
-        database::Database,
         channels::{create_command_bus, create_db_command_queue, create_event_bus},
+        database::Database,
         database::DbWriter,
         provider::ProviderClient,
     },
-    application::{Orchestrator, CentralStore, store::MenuType},
-    presentation::{
-        gateway::Gateway,
-        ui::bridge::BridgeCommand,
-    },
+    presentation::{gateway::Gateway, ui::bridge::BridgeCommand},
     utils::init_tracing,
 };
 
@@ -47,9 +47,7 @@ fn build_logs_table_model(
 
     let slint_logs: Vec<slint::ModelRc<slint::StandardListViewItem>> = logs
         .iter()
-        .filter(|log| {
-            selected_level.map_or(true, |level| log.level.eq_ignore_ascii_case(level))
-        })
+        .filter(|log| selected_level.map_or(true, |level| log.level.eq_ignore_ascii_case(level)))
         .map(|log| {
             let time_str = log.created_at.format("%Y-%m-%d %H:%M:%S").to_string();
             let trace_id = log.trace_id.clone().unwrap_or_default();
@@ -79,16 +77,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize tracing
     init_tracing();
     tracing::info!("Starting App-Voucher");
-    
+
     // 2. Load configuration
     let config = AppConfig::from_env();
     tracing::info!("Configuration loaded: {:?}", config);
-    
+
     // 3. Initialize Tokio runtime for async components
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    
+
     // 4. Initialize database and run migrations
     let db = rt.block_on(async {
         let db = Database::new(&config.db_path)?;
@@ -123,12 +121,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Ok::<(), Box<dyn std::error::Error>>(())
     })?;
-    
+
     // 5. Create communication channels
     let (command_tx, command_rx) = create_command_bus(config.command_bus_capacity);
     let (db_cmd_tx, db_cmd_rx) = create_db_command_queue(config.db_command_capacity);
     let (event_tx, _event_rx) = create_event_bus(config.event_bus_capacity);
-    
+
     // 6. Initialize Central Store and hydrate from DB
     let store = rt.block_on(async {
         let store = CentralStore::new();
@@ -136,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Central Store hydrated");
         Ok::<CentralStore, Box<dyn std::error::Error>>(store)
     })?;
-    
+
     // 7. Start DB Writer actor (in background)
     let db_writer = DbWriter::new(db.clone(), db_cmd_rx, event_tx.clone());
     rt.spawn(async move {
@@ -150,48 +148,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         const LOG_RETENTION_DAYS: i64 = 30;
         const PURGE_INTERVAL_SECS: u64 = 3600; // every 1 hour
 
-        let _ = db_cmd_tx_for_retention.send(vouchflow::domain::DbCommand::PurgeOldLogs {
-            retention_days: LOG_RETENTION_DAYS,
-        }).await;
+        let _ = db_cmd_tx_for_retention
+            .send(vouchflow::domain::DbCommand::PurgeOldLogs {
+                retention_days: LOG_RETENTION_DAYS,
+            })
+            .await;
 
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(PURGE_INTERVAL_SECS));
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(PURGE_INTERVAL_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
-            if let Err(e) = db_cmd_tx_for_retention.send(vouchflow::domain::DbCommand::PurgeOldLogs {
-                retention_days: LOG_RETENTION_DAYS,
-            }).await {
+            if let Err(e) = db_cmd_tx_for_retention
+                .send(vouchflow::domain::DbCommand::PurgeOldLogs {
+                    retention_days: LOG_RETENTION_DAYS,
+                })
+                .await
+            {
                 tracing::warn!("Stopping log retention task: {}", e);
                 break;
             }
         }
     });
     tracing::info!("Log retention task started (30 days, interval 1 hour)");
-    
+
+    // 7c. Start periodic WAL checkpoint (single-writer via DbCommand)
+    let db_cmd_tx_for_checkpoint = db_cmd_tx.clone();
+    rt.spawn(async move {
+        const CHECKPOINT_INTERVAL_SECS: u64 = 300; // every 5 minutes
+
+        let _ = db_cmd_tx_for_checkpoint
+            .send(vouchflow::domain::DbCommand::WalCheckpoint { truncate: false })
+            .await;
+
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(CHECKPOINT_INTERVAL_SECS));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            interval.tick().await;
+            if let Err(e) = db_cmd_tx_for_checkpoint
+                .send(vouchflow::domain::DbCommand::WalCheckpoint { truncate: false })
+                .await
+            {
+                tracing::warn!("Stopping WAL checkpoint task: {}", e);
+                break;
+            }
+        }
+    });
+    tracing::info!("WAL checkpoint task started (interval 5 minutes, mode PASSIVE)");
+
     // 8. Start Orchestrator (in background)
     let provider_url = config.terminal_addr();
-    let orchestrator = Orchestrator::new(command_rx, db_cmd_tx.clone(), db.clone(), format!("http://{}", provider_url));
+    let orchestrator = Orchestrator::new(
+        command_rx,
+        db_cmd_tx.clone(),
+        db.clone(),
+        format!("http://{}", provider_url),
+    );
     rt.spawn(async move {
         orchestrator.run().await;
     });
     tracing::info!("Orchestrator started");
-    
+
     // 9. Server control state (lazy start - NOT auto-started)
     // Server will be started when user clicks sidebar trigger
     let server_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let server_task = std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::task::JoinHandle<()>>));
+    let server_task =
+        std::sync::Arc::new(std::sync::Mutex::new(None::<tokio::task::JoinHandle<()>>));
     let command_tx_for_server = command_tx.clone();
     let server_addr = config.server_addr();
-    tracing::info!("Server configured on {} (waiting for user to start)", server_addr);
-    
+    tracing::info!(
+        "Server configured on {} (waiting for user to start)",
+        server_addr
+    );
+
     // 10. Initialize Slint UI (before event bridge so we can pass weak reference)
     let ui = AppWindow::new()?;
 
     // Initial backend-driven state
     sync_server_state(&ui, false, "Stopped");
-    AppState::get(&ui).set_current_time(
-        chrono::Local::now().format("%H:%M:%S").to_string().into(),
-    );
+    AppState::get(&ui).set_current_time(chrono::Local::now().format("%H:%M:%S").to_string().into());
 
     // Keep footer clock updated from Rust backend every second.
     let ui_weak_for_clock = ui.as_weak();
@@ -206,10 +242,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
     );
-    
+
     // 11. Start UI event bridge (in background) - connects DomainEvents to Dashboard UI
     let (bridge_tx, bridge_rx) = tokio::sync::mpsc::channel(32);
-    let logs_cache = std::sync::Arc::new(std::sync::Mutex::new(Vec::<vouchflow::domain::LogEntry>::new()));
+    let logs_cache = std::sync::Arc::new(std::sync::Mutex::new(
+        Vec::<vouchflow::domain::LogEntry>::new(),
+    ));
     let event_rx = event_tx.subscribe();
     let store_clone = store.clone();
     let logs_cache_for_events = logs_cache.clone();
@@ -217,79 +255,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     rt.spawn(async move {
         use vouchflow::presentation::ui::UiBridge;
         let bridge = UiBridge::new(store_clone, event_rx, bridge_rx);
-        bridge.run(move |ui_event| {
-            // Trigger Dashboard refresh on relevant events
-            let ui_weak = ui_weak_for_events.clone();
-            let logs_cache = logs_cache_for_events.clone();
-            match ui_event {
-                vouchflow::domain::UiEvent::RefreshMonitoring { 
-                    total_transactions, success_count, failed_count, .. 
-                } => {
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            let state = DashboardState::get(&ui);
-                            if !state.get_auto_refresh() {
-                                return;
+        bridge
+            .run(move |ui_event| {
+                // Trigger Dashboard refresh on relevant events
+                let ui_weak = ui_weak_for_events.clone();
+                let logs_cache = logs_cache_for_events.clone();
+                match ui_event {
+                    vouchflow::domain::UiEvent::RefreshMonitoring {
+                        total_transactions,
+                        success_count,
+                        failed_count,
+                        ..
+                    } => {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak.upgrade() {
+                                let state = DashboardState::get(&ui);
+                                if !state.get_auto_refresh() {
+                                    return;
+                                }
+                                // Only update counters — no full table reload
+                                state.set_total_transactions(total_transactions as i32);
+                                state.set_success_count(success_count as i32);
+                                state.set_failed_count(failed_count as i32);
+                                state.set_pending_count(
+                                    total_transactions as i32
+                                        - success_count as i32
+                                        - failed_count as i32,
+                                );
                             }
-                            // Only update counters — no full table reload
-                            state.set_total_transactions(total_transactions as i32);
-                            state.set_success_count(success_count as i32);
-                            state.set_failed_count(failed_count as i32);
-                            state.set_pending_count(
-                                total_transactions as i32 - success_count as i32 - failed_count as i32
-                            );
-                        }
-                    });
-                }
-                vouchflow::domain::UiEvent::TransactionsUpdated(_) => {
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            let state = DashboardState::get(&ui);
-                            if state.get_auto_refresh() {
-                                // Calls load_transactions which uses TableModel.set_all()
-                                // internally — reuses the persistent VecModel
-                                state.invoke_load_transactions();
+                        });
+                    }
+                    vouchflow::domain::UiEvent::TransactionsUpdated(_) => {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak.upgrade() {
+                                let state = DashboardState::get(&ui);
+                                if state.get_auto_refresh() {
+                                    // Calls load_transactions which uses TableModel.set_all()
+                                    // internally — reuses the persistent VecModel
+                                    state.invoke_load_transactions();
+                                }
                             }
-                        }
-                    });
-                }
-                vouchflow::domain::UiEvent::LogsUpdated(logs) => {
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            let state = LogsState::get(&ui);
+                        });
+                    }
+                    vouchflow::domain::UiEvent::LogsUpdated(logs) => {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak.upgrade() {
+                                let state = LogsState::get(&ui);
 
-                            if let Ok(mut cache) = logs_cache.lock() {
-                                *cache = logs.clone();
-                            }
+                                if let Ok(mut cache) = logs_cache.lock() {
+                                    *cache = logs.clone();
+                                }
 
-                            if state.get_paused() && !logs.is_empty() {
-                                return;
-                            }
+                                if state.get_paused() && !logs.is_empty() {
+                                    return;
+                                }
 
-                            state.set_logs(build_logs_table_model(
-                                &logs,
-                                state.get_level_filter_index(),
-                            ));
-                        }
-                    });
-                }
-                vouchflow::domain::UiEvent::ConfigLoaded { key, value } => {
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak.upgrade() {
-                            let state = SettingsState::get(&ui);
-                            match key.as_str() {
-                                "server_addr" => state.set_server_address(value.into()),
-                                "server_port" => state.set_server_port(value.into()),
-                                "webhook_addr" => state.set_webhook_address(value.into()),
-                                "webhook_port" => state.set_webhook_port(value.into()),
-                                _ => {}
+                                state.set_logs(build_logs_table_model(
+                                    &logs,
+                                    state.get_level_filter_index(),
+                                ));
                             }
-                        }
-                    });
+                        });
+                    }
+                    vouchflow::domain::UiEvent::ConfigLoaded { key, value } => {
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak.upgrade() {
+                                let state = SettingsState::get(&ui);
+                                match key.as_str() {
+                                    "server_addr" => state.set_server_address(value.into()),
+                                    "server_port" => state.set_server_port(value.into()),
+                                    "webhook_addr" => state.set_webhook_address(value.into()),
+                                    "webhook_port" => state.set_webhook_port(value.into()),
+                                    _ => {}
+                                }
+                            }
+                        });
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-        }).await;
+            })
+            .await;
     });
 
     // Handle tab changes to update active menu in store
@@ -305,7 +350,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             5 => MenuType::Settings,
             _ => MenuType::Dashboard,
         };
-        
+
         let tx = bridge_tx_clone.clone();
         rt_handle.spawn(async move {
             let _ = tx.send(BridgeCommand::SetMenu(menu)).await;
@@ -381,7 +426,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         });
     }
-    
+
     // 12. Setup window controls
     ui.on_close_window(move || {
         let _ = slint::quit_event_loop();
@@ -412,7 +457,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     });
-    
+
     // ===== Server Start/Stop Callback =====
     {
         let ui_handle = ui.as_weak();
@@ -423,15 +468,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let server_addr_clone = server_addr.clone();
         let db_for_server = db.clone();
         let store_server = store.clone();
-        
+
         AppState::get(&ui).on_toggle_server(move || {
             let ui = match ui_handle.upgrade() {
                 Some(ui) => ui,
                 None => return,
             };
-            
+
             let is_running = server_running_clone.load(std::sync::atomic::Ordering::SeqCst);
-            
+
             if is_running {
                 // Stop server
                 tracing::info!("Stopping server...");
@@ -453,23 +498,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // tracing::info!("Starting server..."); // Logged inside spawn
                 sync_server_state(&ui, false, "Starting");
                 server_running_clone.store(true, std::sync::atomic::Ordering::SeqCst);
-                
+
                 let gateway = Gateway::new(command_tx_clone.clone(), db_for_server.clone());
                 let running_flag = server_running_clone.clone();
                 let server_task_cleanup = server_task_clone.clone();
                 let ui_weak = ui.as_weak();
                 let store = store_server.clone();
                 let default_addr = server_addr_clone.clone();
-                
+
                 let task_handle = rt_handle.spawn(async move {
                     // Fetch dynamic config
                     let host = store.get_config("server_addr").await;
                     let port = store.get_config("server_port").await;
-                    
+
                     let addr = if let (Some(h), Some(p)) = (host, port) {
-                         format!("{}:{}", h, p)
+                        format!("{}:{}", h, p)
                     } else {
-                         default_addr
+                        default_addr
                     };
 
                     tracing::info!("Starting server on {}...", addr);
@@ -481,7 +526,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             sync_server_state(&ui, true, "Running");
                         }
                     });
-                    
+
                     tracing::info!("API Gateway listening on {}", addr);
                     if let Err(e) = gateway.serve(&addr).await {
                         tracing::error!("Gateway error: {}", e);
@@ -507,7 +552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    
+
     // ===== Register UI Callbacks (extracted modules) =====
     {
         let rt_handle = rt.handle().clone();
@@ -519,7 +564,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         callbacks::dashboard::register(&ui, &db, &db_cmd_tx, &command_tx, &rt_handle);
     }
 
-    
     // Log startup complete
     let _ = db_cmd_tx.try_send(vouchflow::domain::DbCommand::AppendLog {
         level: "INFO".to_string(),
@@ -527,12 +571,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         trace_id: None,
     });
 
-
     tracing::info!("App-Voucher ready");
-    
+
     // 12. Run Slint event loop (blocks until UI closes)
     ui.run()?;
-    
+
     // ===== Graceful Shutdown =====
     tracing::info!("App-Voucher shutting down...");
 
@@ -556,6 +599,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     });
 
+    // Best-effort checkpoint to shrink WAL before writer shutdown
+    let _ = rt.block_on(async {
+        db_cmd_tx
+            .send(vouchflow::domain::DbCommand::WalCheckpoint { truncate: true })
+            .await
+    });
+
     // Drop DB command sender to signal DB writer to stop
     drop(db_cmd_tx);
 
@@ -563,8 +613,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(async {
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     });
-    
+
     tracing::info!("App-Voucher shutdown complete");
-    
+
     Ok(())
 }

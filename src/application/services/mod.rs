@@ -1,16 +1,16 @@
 //! Transaction Services
 
 pub mod check;
-pub mod redeem;
 pub mod physical;
 pub mod product;
+pub mod redeem;
 pub mod stok;
 pub mod webhook;
 
 pub use check::*;
-pub use redeem::*;
 pub use physical::*;
 pub use product::*;
+pub use redeem::*;
 pub use stok::*;
 pub use webhook::*;
 
@@ -33,17 +33,19 @@ pub async fn append_flow_log(
     payload: Option<String>,
     latency_ms: Option<i64>,
 ) {
-    let _ = db_cmd_tx.send(DbCommand::AppendTransactionLog {
-        tx_id: tx_id.to_string(),
-        request_id: request_id.to_string(),
-        trace_id: Some(trace_id.to_string()),
-        kategori: kategori.to_string(),
-        attempt,
-        stage: stage.to_string(),
-        level: level.to_string(),
-        status: status.map(|s| s.to_string()),
-        message: message.to_string(),
-        payload,
-        latency_ms,
-    }).await;
+    let _ = db_cmd_tx
+        .send(DbCommand::AppendTransactionLog {
+            tx_id: tx_id.to_string(),
+            request_id: request_id.to_string(),
+            trace_id: Some(trace_id.to_string()),
+            kategori: kategori.to_string(),
+            attempt,
+            stage: stage.to_string(),
+            level: level.to_string(),
+            status: status.map(|s| s.to_string()),
+            message: message.to_string(),
+            payload,
+            latency_ms,
+        })
+        .await;
 }

@@ -1,7 +1,7 @@
 //! Command Bus - Gateway/UI to Orchestrator communication
 
-use tokio::sync::mpsc;
 use crate::domain::Command;
+use tokio::sync::mpsc;
 
 /// Command bus sender
 pub type CommandSender = mpsc::Sender<Command>;

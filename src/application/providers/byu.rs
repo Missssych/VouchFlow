@@ -51,7 +51,10 @@ fn default_headers() -> HeaderMap {
         ),
     );
     headers.insert("sec-ch-ua-mobile", HeaderValue::from_static("?0"));
-    headers.insert("sec-ch-ua-platform", HeaderValue::from_static("\"Windows\""));
+    headers.insert(
+        "sec-ch-ua-platform",
+        HeaderValue::from_static("\"Windows\""),
+    );
     headers.insert("sec-fetch-dest", HeaderValue::from_static("empty"));
     headers.insert("sec-fetch-mode", HeaderValue::from_static("cors"));
     headers.insert("sec-fetch-site", HeaderValue::from_static("same-site"));
@@ -103,11 +106,7 @@ impl ByuProvider {
 
     fn value_as_non_empty_str(value: &Value) -> Option<&str> {
         let value = value.as_str()?.trim();
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
+        if value.is_empty() { None } else { Some(value) }
     }
 
     fn parse_f64(value: &Value) -> Option<f64> {
@@ -146,7 +145,11 @@ impl ByuProvider {
                 Self::find_attribute_value(variant, "title").and_then(Self::value_as_non_empty_str)
             })
             .or_else(|| variant.get("title").and_then(Self::value_as_non_empty_str))
-            .or_else(|| variant.get("subtitle").and_then(Self::value_as_non_empty_str))
+            .or_else(|| {
+                variant
+                    .get("subtitle")
+                    .and_then(Self::value_as_non_empty_str)
+            })
             .map(ToOwned::to_owned)
     }
 
@@ -373,7 +376,11 @@ impl ProviderApi for ByuProvider {
         })
     }
 
-    async fn redeem_voucher(&self, msisdn: &str, serial_number: &str) -> Result<RedeemResponse, ProviderError> {
+    async fn redeem_voucher(
+        &self,
+        msisdn: &str,
+        serial_number: &str,
+    ) -> Result<RedeemResponse, ProviderError> {
         tracing::info!("Byu: Redeeming voucher {} for {}", serial_number, msisdn);
 
         let token = self.handshake_get_token(msisdn).await?;
@@ -415,9 +422,7 @@ impl ProviderApi for ByuProvider {
                     Some(body.clone())
                 }
             });
-        let transaction_id = parsed_json
-            .as_ref()
-            .and_then(Self::extract_transaction_id);
+        let transaction_id = parsed_json.as_ref().and_then(Self::extract_transaction_id);
 
         Ok(RedeemResponse {
             success,
@@ -521,4 +526,3 @@ mod tests {
         );
     }
 }
-

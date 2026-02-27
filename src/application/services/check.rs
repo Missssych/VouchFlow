@@ -1,14 +1,14 @@
 //! Check Voucher Service
 
-use crate::domain::{DbCommand, TransactionResult, TransactionStatus};
-use crate::application::providers::ProviderRouter;
-use crate::infrastructure::provider::CircuitBreaker;
-use crate::infrastructure::channels::DbCommandSender;
 use super::append_flow_log;
+use crate::application::providers::ProviderRouter;
+use crate::domain::{DbCommand, TransactionResult, TransactionStatus};
+use crate::infrastructure::channels::DbCommandSender;
+use crate::infrastructure::provider::CircuitBreaker;
 use std::time::Instant;
 
 /// Execute check voucher transaction
-/// 
+///
 /// Routes to the correct provider (Telkomsel, Byu, Smartfren) based on provider_name
 pub async fn execute_check(
     tx_id: &str,
@@ -16,7 +16,7 @@ pub async fn execute_check(
     trace_id: &str,
     provider_name: &str,
     produk: &str,
-    nomor: &str,  // CEK input number (voucher code)
+    nomor: &str, // CEK input number (voucher code)
     kategori: &str,
     attempt: i32,
     provider_router: &ProviderRouter,
@@ -34,13 +34,17 @@ pub async fn execute_check(
         "INFO",
         Some("PROCESSING"),
         "Start check voucher flow",
-        Some(serde_json::json!({
-            "provider": provider_name,
-            "produk": produk,
-            "nomor": nomor
-        }).to_string()),
+        Some(
+            serde_json::json!({
+                "provider": provider_name,
+                "produk": produk,
+                "nomor": nomor
+            })
+            .to_string(),
+        ),
         None,
-    ).await;
+    )
+    .await;
 
     // Check circuit breaker
     if !circuit_breaker.is_allowed().await {
@@ -57,7 +61,8 @@ pub async fn execute_check(
             "Circuit breaker rejected check request",
             None,
             None,
-        ).await;
+        )
+        .await;
         return TransactionResult::failed(
             request_id.to_string(),
             tx_id.to_string(),
@@ -65,7 +70,7 @@ pub async fn execute_check(
             "Service temporarily unavailable".to_string(),
         );
     }
-    
+
     append_flow_log(
         db_cmd_tx,
         tx_id,
@@ -79,7 +84,8 @@ pub async fn execute_check(
         "Calling provider check API",
         None,
         None,
-    ).await;
+    )
+    .await;
     let provider_started = Instant::now();
 
     // Call provider using ProviderRouter (routes to correct provider API)
@@ -87,14 +93,14 @@ pub async fn execute_check(
         Ok(response) => {
             let provider_latency = provider_started.elapsed().as_millis() as i64;
             circuit_breaker.record_success().await;
-            
+
             // Update transaction status based on response
             let status = if response.success {
                 TransactionStatus::Success
             } else {
                 TransactionStatus::Failed
             };
-            
+
             // Format response data
             let result_data = serde_json::json!({
                 "barcode": nomor,
@@ -105,7 +111,7 @@ pub async fn execute_check(
                 "status": response.status,
             });
             let result_payload = result_data.to_string();
-            
+
             append_flow_log(
                 db_cmd_tx,
                 tx_id,
@@ -115,20 +121,31 @@ pub async fn execute_check(
                 attempt,
                 "PROVIDER_CHECK_RESPONSE",
                 if response.success { "INFO" } else { "WARN" },
-                Some(if response.success { "SUCCESS" } else { "FAILED" }),
+                Some(if response.success {
+                    "SUCCESS"
+                } else {
+                    "FAILED"
+                }),
                 "Provider check API completed",
                 Some(result_payload.clone()),
                 Some(provider_latency),
-            ).await;
-            
-            let _ = db_cmd_tx.send(DbCommand::UpdateTransaction {
-                tx_id: tx_id.to_string(),
-                status,
-                sn: Some(nomor.to_string()),
-                result_code: Some(if response.success { "00".to_string() } else { "99".to_string() }),
-                result_payload: Some(result_payload.clone()),
-            }).await;
-            
+            )
+            .await;
+
+            let _ = db_cmd_tx
+                .send(DbCommand::UpdateTransaction {
+                    tx_id: tx_id.to_string(),
+                    status,
+                    sn: Some(nomor.to_string()),
+                    result_code: Some(if response.success {
+                        "00".to_string()
+                    } else {
+                        "99".to_string()
+                    }),
+                    result_payload: Some(result_payload.clone()),
+                })
+                .await;
+
             if response.success {
                 append_flow_log(
                     db_cmd_tx,
@@ -143,7 +160,8 @@ pub async fn execute_check(
                     "Check flow finished successfully",
                     None,
                     None,
-                ).await;
+                )
+                .await;
                 TransactionResult::success(
                     request_id.to_string(),
                     tx_id.to_string(),
@@ -163,7 +181,8 @@ pub async fn execute_check(
                     "Check flow finished with business failure",
                     None,
                     None,
-                ).await;
+                )
+                .await;
                 TransactionResult::failed(
                     request_id.to_string(),
                     tx_id.to_string(),
@@ -176,14 +195,16 @@ pub async fn execute_check(
             let provider_latency = provider_started.elapsed().as_millis() as i64;
             circuit_breaker.record_failure().await;
             let error_message = format!("Provider error: {}", e);
-            
-            let _ = db_cmd_tx.send(DbCommand::UpdateTransaction {
-                tx_id: tx_id.to_string(),
-                status: TransactionStatus::Failed,
-                sn: Some(nomor.to_string()),
-                result_code: Some("ERR001".to_string()),
-                result_payload: Some(error_message.clone()),
-            }).await;
+
+            let _ = db_cmd_tx
+                .send(DbCommand::UpdateTransaction {
+                    tx_id: tx_id.to_string(),
+                    status: TransactionStatus::Failed,
+                    sn: Some(nomor.to_string()),
+                    result_code: Some("ERR001".to_string()),
+                    result_payload: Some(error_message.clone()),
+                })
+                .await;
 
             append_flow_log(
                 db_cmd_tx,
@@ -198,8 +219,9 @@ pub async fn execute_check(
                 "Provider check API failed",
                 Some(error_message.clone()),
                 Some(provider_latency),
-            ).await;
-            
+            )
+            .await;
+
             TransactionResult::failed(
                 request_id.to_string(),
                 tx_id.to_string(),
