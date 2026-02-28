@@ -64,6 +64,7 @@ export component MasterData inherits Rectangle {
         StokState.form-barcode = "";
         StokState.form-serial-number = "";
         StokState.form-expired-date = "";
+        StokState.form-error-message = "";
     }
     function save-voucher-form() {
         StokState.save-stock(
@@ -75,13 +76,7 @@ export component MasterData inherits Rectangle {
             StokState.form-expired-date);
     }
     function submit-voucher-form() {
-        let is-add-mode = StokState.edit-stock-id == -1;
         root.save-voucher-form();
-        if (is-add-mode) {
-            StokState.next-barcode();
-            StokState.form-serial-number = "";
-            root.focus-voucher-form-field(3);
-        }
     }
     function focus-voucher-form-field(index: int) {
         let target = min(max(index, 0), root.voucher-form-field-count - 1);
@@ -712,7 +707,7 @@ export component MasterData inherits Rectangle {
                 col: 1;
                 width: 280px;
                 height: 32px;
-                placeholder: "YYYY-MM-DD";
+                placeholder: "YYYY-MM-DD / DD-MM-YYYY / YYYY/MM/DD / DD/MM/YYYY";
                 text <=> StokState.form-expired-date;
                 changed has-focus => {
                     if (self.has-focus) {
@@ -722,6 +717,15 @@ export component MasterData inherits Rectangle {
                 key-pressed(event) => {
                     root.handle-voucher-form-key(event)
                 }
+            }
+
+            if StokState.form-error-message != "": Text {
+                row: 5;
+                col: 1;
+                text: StokState.form-error-message;
+                font-size: 11px;
+                color: Palette.error;
+                wrap: word-wrap;
             }
         }
 

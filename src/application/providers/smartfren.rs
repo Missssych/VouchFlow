@@ -282,10 +282,7 @@ impl SmartfrenProvider {
         let base = if let Some(msg) = provider_message {
             let lower = msg.to_ascii_lowercase();
             if lower.contains("pin voucher") {
-                format!(
-                    "PIN voucher kemungkinan salah/tidak valid: {}",
-                    msg
-                )
+                format!("PIN voucher kemungkinan salah/tidak valid: {}", msg)
             } else {
                 msg
             }

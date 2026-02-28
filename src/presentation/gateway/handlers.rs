@@ -3,17 +3,17 @@
 //! Unified endpoint for all transaction types
 
 use axum::{
-    extract::{Query, State, Path},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::Json,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::oneshot;
 use std::time::Duration;
+use tokio::sync::oneshot;
 
-use crate::domain::{Command, TransactionResult, TransactionType};
 use super::server::AppState;
+use crate::domain::{Command, TransactionResult, TransactionType};
 
 /// Query parameters for transaksi endpoint
 #[derive(Debug, Deserialize)]
@@ -42,7 +42,7 @@ impl<T> ApiResponse<T> {
             error: None,
         }
     }
-    
+
     pub fn error(msg: String) -> Self {
         Self {
             success: false,
@@ -125,7 +125,9 @@ impl TransaksiApiResponse {
                 success: false,
                 nomor,
                 produk,
-                message: result.message.unwrap_or_else(|| "Transaksi gagal".to_string()),
+                message: result
+                    .message
+                    .unwrap_or_else(|| "Transaksi gagal".to_string()),
                 data: payload,
                 idtrx: result.request_id,
             }
@@ -147,7 +149,8 @@ fn get_string_field(payload: &Value, key: &str) -> Option<String> {
 }
 
 fn get_first_array_string(payload: &Value, key: &str) -> Option<String> {
-    payload.get(key)
+    payload
+        .get(key)
         .and_then(Value::as_array)
         .and_then(|arr| arr.first())
         .and_then(|v| match v {
@@ -171,14 +174,13 @@ fn build_fis_data(payload: &Value, harga: f64) -> Value {
         .or_else(|| get_first_array_string(payload, "barcodes"));
     let serial_number = get_string_field(payload, "serial_number")
         .or_else(|| get_first_array_string(payload, "serial_numbers"));
-    let exp = get_string_field(payload, "exp")
-        .or_else(|| get_string_field(payload, "expiry_date"));
+    let exp = get_string_field(payload, "exp").or_else(|| get_string_field(payload, "expiry_date"));
 
     json!({
         "barcode": barcode,
         "serial_number": serial_number,
         "exp": exp,
-        "harga": harga,
+        "harga": harga as i64,
     })
 }
 
@@ -186,7 +188,7 @@ fn build_rdm_data(payload: &Value, harga: f64) -> Value {
     let barcode = get_string_field(payload, "barcode");
     json!({
         "barcode": barcode,
-        "harga": harga,
+        "harga": harga as i64,
     })
 }
 
@@ -206,7 +208,7 @@ pub async fn handle_transaksi(
         ).ok();
         Ok(result)
     }).await.ok().flatten();
-    
+
     // Validate product exists and has valid kategori
     let (provider, nama_produk, kategori, harga, kode_addon) = match product_info {
         Some(info) => info,
@@ -214,7 +216,13 @@ pub async fn handle_transaksi(
             // Try fallback to prefix-based detection for backward compatibility
             if let Some(tx_type) = TransactionType::from_product_code(&params.produk) {
                 // Create minimal product info for legacy support
-                ("Unknown".to_string(), params.produk.clone(), tx_type.as_str().to_string(), 0.0, None)
+                (
+                    "Unknown".to_string(),
+                    params.produk.clone(),
+                    tx_type.as_str().to_string(),
+                    0.0,
+                    None,
+                )
             } else {
                 return Ok(Json(TransaksiApiResponse::failed(
                     params.idtrx,
@@ -225,7 +233,7 @@ pub async fn handle_transaksi(
             }
         }
     };
-    
+
     let tx_type = match TransactionType::from_kategori(&kategori) {
         Some(t) => t,
         None => {
@@ -233,14 +241,17 @@ pub async fn handle_transaksi(
                 params.idtrx,
                 params.nomor,
                 params.produk.clone(),
-                format!("Invalid kategori: {} for product: {}", kategori, params.produk),
+                format!(
+                    "Invalid kategori: {} for product: {}",
+                    kategori, params.produk
+                ),
             )));
         }
     };
-    
+
     // Create oneshot channel for sync response
     let (response_tx, response_rx) = oneshot::channel();
-    
+
     // Create command with full product info
     let command = Command::with_product_info(
         params.idtrx.clone(),
@@ -254,7 +265,7 @@ pub async fn handle_transaksi(
         params.nomor.clone(),
         Some(response_tx),
     );
-    
+
     // Send to command bus (fail-fast backpressure per architecture Section 9.1)
     match state.command_tx.try_send(command) {
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
@@ -267,18 +278,16 @@ pub async fn handle_transaksi(
         }
         Ok(()) => {}
     }
-    
+
     // Wait for response with timeout
     match tokio::time::timeout(Duration::from_secs(30), response_rx).await {
-        Ok(Ok(result)) => {
-            Ok(Json(TransaksiApiResponse::from_result(
-                result,
-                params.nomor,
-                params.produk,
-                tx_type,
-                harga,
-            )))
-        }
+        Ok(Ok(result)) => Ok(Json(TransaksiApiResponse::from_result(
+            result,
+            params.nomor,
+            params.produk,
+            tx_type,
+            harga,
+        ))),
         Ok(Err(_)) => {
             // Channel closed
             Ok(Json(TransaksiApiResponse::failed(

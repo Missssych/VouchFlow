@@ -30,10 +30,8 @@ fn format_timestamp_to_local(s: &str) -> String {
 
     for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
         if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(ts, fmt) {
-            let utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                naive,
-                chrono::Utc,
-            );
+            let utc =
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc);
             return utc
                 .with_timezone(&chrono::Local)
                 .format("%Y-%m-%d %H:%M")
@@ -248,14 +246,26 @@ pub fn register(
                 let kode_addon_str = kode_addon.to_string();
                 let barcode_str = barcode.to_string();
                 let serial_str = serial.to_string();
-                let expired_str = expired.to_string();
-                let expired_opt = if expired.is_empty() {
-                    None
-                } else {
-                    Some(expired.to_string())
-                };
+                let expired_input = expired.to_string();
+                let expired_opt =
+                    match vouchflow::utils::normalize_expired_date_optional(&expired_input) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            if let Some(ui) = ui_weak.upgrade() {
+                                let state = StokState::get(&ui);
+                                state.set_form_error_message(e.into());
+                            }
+                            return;
+                        }
+                    };
+                let expired_str = expired_opt.clone().unwrap_or_default();
                 let is_create = id < 0;
                 let row_id = id;
+                if let Some(ui) = ui_weak.upgrade() {
+                    let state = StokState::get(&ui);
+                    state.set_form_error_message("".into());
+                    state.set_form_expired_date(expired_str.clone().into());
+                }
 
                 rth.spawn(async move {
                     let cmd = if is_create {
@@ -295,6 +305,9 @@ pub fn register(
                                 ]));
 
                                 if is_create {
+                                    let state = StokState::get(&ui);
+                                    state.invoke_next_barcode();
+                                    state.set_form_serial_number("".into());
                                     with_table(TableId::StokActive, |m| m.push_front(-1, row));
                                     // Reload after delay to get real DB ID
                                     let ui_weak2 = ui.as_weak();
@@ -430,6 +443,7 @@ pub fn register(
                                 state.set_form_barcode(stock.barcode.into());
                                 state.set_form_serial_number(stock.serial_number.into());
                                 state.set_form_expired_date(stock.expired_date.into());
+                                state.set_form_error_message("".into());
                                 state.set_form_panel_open(true);
                             }
                         });
@@ -634,11 +648,18 @@ pub fn register(
                                     resp.product_name.unwrap_or_default().into(),
                                 );
                                 let expiry_date = resp.expiry_date.clone().unwrap_or_default();
-                                let date_only = expiry_date
-                                    .split(|c| c == ' ' || c == 'T')
-                                    .next()
-                                    .unwrap_or(&expiry_date);
-                                state.set_check_result_expiry(date_only.into());
+                                let normalized_expiry =
+                                    vouchflow::utils::normalize_expired_date_optional(&expiry_date)
+                                        .ok()
+                                        .flatten()
+                                        .unwrap_or_else(|| {
+                                            expiry_date
+                                                .split(|c| c == ' ' || c == 'T')
+                                                .next()
+                                                .unwrap_or(&expiry_date)
+                                                .to_string()
+                                        });
+                                state.set_check_result_expiry(normalized_expiry.into());
                                 state.set_check_result_status(resp.status.into());
                                 state.set_check_result_message("Voucher berhasil dicek".into());
                             }
@@ -739,12 +760,37 @@ pub fn register(
                         match result {
                             Ok(resp) => {
                                 if let Some(expiry) = resp.expiry_date {
-                                    let date_only = expiry
-                                        .split(|c| c == ' ' || c == 'T')
-                                        .next()
-                                        .unwrap_or(&expiry);
-                                    tracing::info!("Setting form-expired-date to: {}", date_only);
-                                    StokState::get(&ui).set_form_expired_date(date_only.into());
+                                    match vouchflow::utils::normalize_expired_date_optional(&expiry)
+                                    {
+                                        Ok(Some(normalized)) => {
+                                            tracing::info!(
+                                                "Setting form-expired-date to: {}",
+                                                normalized
+                                            );
+                                            let state = StokState::get(&ui);
+                                            state.set_form_expired_date(normalized.into());
+                                            state.set_form_error_message("".into());
+                                        }
+                                        Ok(None) => {
+                                            let state = StokState::get(&ui);
+                                            state.set_form_expired_date("".into());
+                                            state.set_form_error_message("".into());
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                "Unsupported provider expiry format: {} ({})",
+                                                expiry,
+                                                e
+                                            );
+                                            StokState::get(&ui).set_form_error_message(
+                                                format!(
+                                                    "Format expiry dari provider tidak dikenali: {}",
+                                                    expiry
+                                                )
+                                                .into(),
+                                            );
+                                        }
+                                    }
                                 } else {
                                     tracing::warn!("No expiry_date in response");
                                 }

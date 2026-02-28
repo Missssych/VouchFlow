@@ -2,17 +2,14 @@
 //!
 //! API Gateway for receiving transaction requests
 
-use axum::{
-    Router,
-    routing::get,
-};
-use tower_http::cors::{CorsLayer, Any};
-use tower_http::trace::TraceLayer;
+use axum::{Router, routing::get};
 use std::net::SocketAddr;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
 
+use super::handlers;
 use crate::infrastructure::channels::CommandSender;
 use crate::infrastructure::database::Database;
-use super::handlers;
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -33,7 +30,7 @@ impl Gateway {
             state: AppState { command_tx, db },
         }
     }
-    
+
     /// Create router with all routes
     fn create_router(&self) -> Router {
         // CORS layer for development
@@ -41,7 +38,7 @@ impl Gateway {
             .allow_origin(Any)
             .allow_methods(Any)
             .allow_headers(Any);
-        
+
         Router::new()
             // Main transaction endpoint
             .route("/api/v1/transaksi", get(handlers::handle_transaksi))
@@ -51,17 +48,17 @@ impl Gateway {
             .layer(TraceLayer::new_for_http())
             .with_state(self.state.clone())
     }
-    
+
     /// Start serving HTTP requests
     pub async fn serve(self, addr: &str) -> Result<(), std::io::Error> {
         let router = self.create_router();
         let addr: SocketAddr = addr.parse().expect("Invalid address");
-        
+
         tracing::info!("API Gateway listening on {}", addr);
-        
+
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, router).await?;
-        
+
         Ok(())
     }
 }

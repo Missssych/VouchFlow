@@ -283,13 +283,13 @@ pub enum DbCommand {
     },
 
     // ===== Stock Operations (Single-Writer) =====
-    /// Reserve a single voucher from stock (FIFO by expired_date)
+    /// Reserve a single voucher from stock (FEFO by expired_date)
     /// Used by redeem flow. Atomically finds ACTIVE voucher and marks RESERVED.
     ReserveStokVoucher {
         kode_addon: String,
         response_tx: tokio::sync::oneshot::Sender<Result<ReservedVoucher, super::DomainError>>,
     },
-    /// Reserve multiple vouchers from stock (FIFO by expired_date)
+    /// Reserve multiple vouchers from stock (FEFO by expired_date)
     /// Used by physical voucher flow.
     ReserveStokVoucherBatch {
         kode_addon: String,

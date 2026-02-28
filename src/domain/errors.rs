@@ -34,6 +34,9 @@ pub enum DomainError {
 
     #[error("Configuration error: {0}")]
     ConfigError(String),
+
+    #[error("Validation error: {0}")]
+    ValidationError(String),
 }
 
 impl From<rusqlite::Error> for DomainError {

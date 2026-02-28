@@ -13,6 +13,7 @@ use crate::domain::{
     DbCommand, DomainError, DomainEvent, LogEntry, ProductSummary, ReservedVoucher,
     StokVoucherSummary, TransactionStatus, TransactionSummary,
 };
+use crate::utils::normalize_expired_date_optional;
 
 /// DB Writer Actor
 pub struct DbWriter {
@@ -709,13 +710,24 @@ impl DbWriter {
         serial_number: &str,
         expired_date: Option<&str>,
     ) -> Result<(), DomainError> {
+        let normalized_expired = normalize_expired_date_optional(expired_date.unwrap_or_default())
+            .map_err(DomainError::ValidationError)?;
+        let expired_for_db = normalized_expired.clone();
         let now = Local::now().to_rfc3339();
 
         let id = self.db.with_writer(|conn| {
             conn.execute(
                 "INSERT INTO stok_voucher (provider, kode_addon, barcode, serial_number, expired_date, status, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
-                rusqlite::params![provider, kode_addon, barcode, serial_number, expired_date, now, now],
+                rusqlite::params![
+                    provider,
+                    kode_addon,
+                    barcode,
+                    serial_number,
+                    expired_for_db.as_deref(),
+                    now,
+                    now
+                ],
             )?;
             Ok(conn.last_insert_rowid())
         }).await?;
@@ -726,7 +738,7 @@ impl DbWriter {
             kode_addon: kode_addon.to_string(),
             barcode: barcode.to_string(),
             serial_number: serial_number.to_string(),
-            expired_date: expired_date.unwrap_or("").to_string(),
+            expired_date: normalized_expired.unwrap_or_default(),
             status: "ACTIVE".to_string(),
             created_at: now,
         };
@@ -750,13 +762,24 @@ impl DbWriter {
         serial_number: &str,
         expired_date: Option<&str>,
     ) -> Result<(), DomainError> {
+        let normalized_expired = normalize_expired_date_optional(expired_date.unwrap_or_default())
+            .map_err(DomainError::ValidationError)?;
+        let expired_for_db = normalized_expired.clone();
         let now = Local::now().to_rfc3339();
 
         let status = self.db.with_writer(|conn| {
             conn.execute(
                 "UPDATE stok_voucher SET provider = ?, kode_addon = ?, barcode = ?, serial_number = ?, expired_date = ?, updated_at = ?
                  WHERE id = ?",
-                rusqlite::params![provider, kode_addon, barcode, serial_number, expired_date, now, id],
+                rusqlite::params![
+                    provider,
+                    kode_addon,
+                    barcode,
+                    serial_number,
+                    expired_for_db.as_deref(),
+                    now,
+                    id
+                ],
             )?;
             
             let status: String = conn.query_row(
@@ -773,7 +796,7 @@ impl DbWriter {
             kode_addon: kode_addon.to_string(),
             barcode: barcode.to_string(),
             serial_number: serial_number.to_string(),
-            expired_date: expired_date.unwrap_or("").to_string(),
+            expired_date: normalized_expired.unwrap_or_default(),
             status,
             created_at: now,
         };
@@ -883,11 +906,31 @@ impl DbWriter {
     ) -> Result<ReservedVoucher, DomainError> {
         let now = Local::now().to_rfc3339();
         let reserved = self.db.with_writer(|conn| {
-            // Find first ACTIVE voucher FIFO by expired_date
+            // FEFO: prefer nearest valid expired_date first, push empty/invalid dates to the end.
             let result = conn.query_row(
-                "SELECT id, barcode, serial_number, expired_date FROM stok_voucher 
-                 WHERE kode_addon = ? AND status = 'ACTIVE' 
-                 ORDER BY expired_date ASC LIMIT 1",
+                "SELECT id, barcode, serial_number, expired_date
+                 FROM (
+                     SELECT
+                         id,
+                         barcode,
+                         serial_number,
+                         expired_date,
+                         created_at,
+                         CASE
+                             WHEN expired_date LIKE '____-__-__' THEN date(expired_date)
+                             WHEN expired_date LIKE '__-__-____' THEN date(substr(expired_date, 7, 4) || '-' || substr(expired_date, 4, 2) || '-' || substr(expired_date, 1, 2))
+                             WHEN expired_date LIKE '____/__/__' THEN date(replace(expired_date, '/', '-'))
+                             WHEN expired_date LIKE '__/__/____' THEN date(substr(expired_date, 7, 4) || '-' || substr(expired_date, 4, 2) || '-' || substr(expired_date, 1, 2))
+                             ELSE NULL
+                         END AS normalized_expired
+                     FROM stok_voucher
+                     WHERE kode_addon = ? AND status = 'ACTIVE'
+                 )
+                 ORDER BY
+                     CASE WHEN normalized_expired IS NULL THEN 1 ELSE 0 END ASC,
+                     normalized_expired ASC,
+                     created_at ASC
+                 LIMIT 1",
                 [kode_addon],
                 |row| Ok((
                     row.get::<_, i64>(0)?,
@@ -942,9 +985,29 @@ impl DbWriter {
         let now = Local::now().to_rfc3339();
         self.db.with_writer(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, barcode, serial_number, expired_date FROM stok_voucher 
-                 WHERE kode_addon = ? AND status = 'ACTIVE' 
-                 ORDER BY expired_date ASC LIMIT ?"
+                "SELECT id, barcode, serial_number, expired_date
+                 FROM (
+                     SELECT
+                         id,
+                         barcode,
+                         serial_number,
+                         expired_date,
+                         created_at,
+                         CASE
+                             WHEN expired_date LIKE '____-__-__' THEN date(expired_date)
+                             WHEN expired_date LIKE '__-__-____' THEN date(substr(expired_date, 7, 4) || '-' || substr(expired_date, 4, 2) || '-' || substr(expired_date, 1, 2))
+                             WHEN expired_date LIKE '____/__/__' THEN date(replace(expired_date, '/', '-'))
+                             WHEN expired_date LIKE '__/__/____' THEN date(substr(expired_date, 7, 4) || '-' || substr(expired_date, 4, 2) || '-' || substr(expired_date, 1, 2))
+                             ELSE NULL
+                         END AS normalized_expired
+                     FROM stok_voucher
+                     WHERE kode_addon = ? AND status = 'ACTIVE'
+                 )
+                 ORDER BY
+                     CASE WHEN normalized_expired IS NULL THEN 1 ELSE 0 END ASC,
+                     normalized_expired ASC,
+                     created_at ASC
+                 LIMIT ?"
             )?;
             
             let rows = stmt.query_map(rusqlite::params![kode_addon, qty], |row| {
@@ -1003,13 +1066,15 @@ impl DbWriter {
     /// Mark a reserved voucher as USED
     async fn mark_voucher_used(&self, voucher_id: i64) -> Result<(), DomainError> {
         let now = Local::now().to_rfc3339();
-        self.db.with_writer(|conn| {
-            conn.execute(
+        self.db
+            .with_writer(|conn| {
+                conn.execute(
                 "UPDATE stok_voucher SET status = 'USED', used_at = ?, updated_at = ? WHERE id = ?",
                 rusqlite::params![now.clone(), now, voucher_id],
             )?;
-            Ok(())
-        }).await?;
+                Ok(())
+            })
+            .await?;
 
         let _ = self.event_tx.send(DomainEvent::StokStatusChanged {
             seq: self.next_seq(),

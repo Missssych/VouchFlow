@@ -24,10 +24,8 @@ fn format_timestamp_to_local_dashboard(s: &str) -> String {
 
     for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"] {
         if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(ts, fmt) {
-            let utc = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                naive,
-                chrono::Utc,
-            );
+            let utc =
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc);
             return utc
                 .with_timezone(&chrono::Local)
                 .format("%Y-%m-%d %H:%M:%S")
