@@ -14,6 +14,12 @@ import { DashboardState, StokState } from "../state.slint";
 export component Dashboard inherits Rectangle {
     property <string> context_action: "";
     property <bool> stok-button: false;
+    // Confirmation dialog state
+    property <bool> confirm-dialog-visible: false;
+    property <string> confirm-dialog-title: "";
+    property <string> confirm-dialog-message: "";
+    property <string> confirm-dialog-action: "";
+    property <int> confirm-dialog-tx-id: -1;
     function pad2(value: int) -> string {
         if (value < 10) {
             return "0" + value;
@@ -529,9 +535,24 @@ export component Dashboard inherits Rectangle {
                         icon: Icons.SearchIcon,
                         disabled: table.selected-count != 1 || table.current-row < 0 || DashboardState.transactions[table.current-row][1].text == "Smartfren"
                     },
-                    { title: "Sukseskan transaksi", action: "sukseskan", icon: Icons.FileCheckIcon },
-                    { title: "Ulangi transaksi", action: "ulangi", icon: Icons.FileSymlinkIcon },
-                    { title: "Gagalkan transaksi", action: "gagalkan", icon: Icons.FileXIcon },
+                    {
+                        title: "Sukseskan transaksi",
+                        action: "sukseskan",
+                        icon: Icons.FileCheckIcon,
+                        disabled: table.current-row < 0 || DashboardState.transactions[table.current-row][7].text == "SUCCESS"
+                    },
+                    {
+                        title: "Ulangi transaksi",
+                        action: "ulangi",
+                        icon: Icons.FileSymlinkIcon,
+                        disabled: table.current-row < 0 || DashboardState.transactions[table.current-row][7].text == "SUCCESS"
+                    },
+                    {
+                        title: "Gagalkan transaksi",
+                        action: "gagalkan",
+                        icon: Icons.FileXIcon,
+                        disabled: table.current-row < 0 || DashboardState.transactions[table.current-row][7].text == "FAILED"
+                    },
                     { title: "Detail", action: "detail", icon: Icons.FileSearchIcon },
                 ];
                 context-menu-enabled: !DashboardState.auto-refresh;
@@ -544,11 +565,23 @@ export component Dashboard inherits Rectangle {
                         } else if (action == "cek-voucher") {
                             DashboardState.check-voucher(DashboardState.transaction-ids[table.current-row]);
                         } else if (action == "sukseskan") {
-                            DashboardState.mark-success(DashboardState.transaction-ids[table.current-row]);
+                            confirm-dialog-title = "Sukseskan Transaksi";
+                            confirm-dialog-message = "Apakah Anda yakin ingin menyukseskan transaksi ini?";
+                            confirm-dialog-action = "sukseskan";
+                            confirm-dialog-tx-id = DashboardState.transaction-ids[table.current-row];
+                            confirm-dialog-visible = true;
                         } else if (action == "gagalkan") {
-                            DashboardState.mark-failed(DashboardState.transaction-ids[table.current-row]);
+                            confirm-dialog-title = "Gagalkan Transaksi";
+                            confirm-dialog-message = "Apakah Anda yakin ingin menggagalkan transaksi ini?";
+                            confirm-dialog-action = "gagalkan";
+                            confirm-dialog-tx-id = DashboardState.transaction-ids[table.current-row];
+                            confirm-dialog-visible = true;
                         } else if (action == "ulangi") {
-                            DashboardState.retry-transaction(DashboardState.transaction-ids[table.current-row]);
+                            confirm-dialog-title = "Ulangi Transaksi";
+                            confirm-dialog-message = "Apakah Anda yakin ingin mengulangi transaksi ini?";
+                            confirm-dialog-action = "ulangi";
+                            confirm-dialog-tx-id = DashboardState.transaction-ids[table.current-row];
+                            confirm-dialog-visible = true;
                         }
                     }
                     context_action = action;
@@ -932,6 +965,102 @@ export component Dashboard inherits Rectangle {
                     horizontal-stretch: 1;
                     clicked => {
                         DashboardState.voucher-dialog-visible = false;
+                    }
+                }
+            }
+        }
+    }
+
+    // Confirmation Dialog Overlay (Sukseskan / Ulangi / Gagalkan)
+    if confirm-dialog-visible: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000080;
+        z: 100;
+        TouchArea {
+            clicked => {
+                confirm-dialog-visible = false;
+            }
+        }
+
+        Rectangle {
+            width: 380px;
+            height: 200px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Palette.bg_surface_1;
+            border-radius: 12px;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #00000060;
+            TouchArea {
+                // Prevent click through
+            }
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Rectangle {
+                        width: 40px;
+                        height: 40px;
+                        background: #fef3c7;
+                        border-radius: 8px;
+                        Text {
+                            text: "⚠";
+                            font-size: 22px;
+                            color: #d97706;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Text {
+                        text: confirm-dialog-title;
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: Palette.text;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: confirm-dialog-message;
+                    font-size: 13px;
+                    color: Palette.text_secondary;
+                    wrap: word-wrap;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+                    CustomButton {
+                        text: "Batal";
+                        height: 32px;
+                        width: 80px;
+                        clicked => {
+                            confirm-dialog-visible = false;
+                        }
+                    }
+
+                    CustomButton {
+                        text: "Ya, Lanjutkan";
+                        height: 32px;
+                        width: 120px;
+                        clicked => {
+                            if (confirm-dialog-action == "sukseskan") {
+                                DashboardState.mark-success(confirm-dialog-tx-id);
+                            } else if (confirm-dialog-action == "gagalkan") {
+                                DashboardState.mark-failed(confirm-dialog-tx-id);
+                            } else if (confirm-dialog-action == "ulangi") {
+                                DashboardState.retry-transaction(confirm-dialog-tx-id);
+                            }
+                            confirm-dialog-visible = false;
+                        }
                     }
                 }
             }

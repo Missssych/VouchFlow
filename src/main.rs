@@ -230,15 +230,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     AppState::get(&ui).set_current_time(chrono::Local::now().format("%H:%M:%S").to_string().into());
 
     // Keep footer clock updated from Rust backend every second.
+    // Also detects midnight date rollover to refresh dashboard date filters.
     let ui_weak_for_clock = ui.as_weak();
     let clock_timer = slint::Timer::default();
+    let last_date = std::cell::RefCell::new(
+        chrono::Local::now().format("%Y-%m-%d").to_string(),
+    );
     clock_timer.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_secs(1),
         move || {
             if let Some(ui) = ui_weak_for_clock.upgrade() {
-                let now = chrono::Local::now().format("%H:%M:%S").to_string();
-                AppState::get(&ui).set_current_time(now.into());
+                let now = chrono::Local::now();
+                AppState::get(&ui).set_current_time(
+                    now.format("%H:%M:%S").to_string().into(),
+                );
+
+                // Midnight rollover detection — cost: ~60ns/tick (string cmp only)
+                // DB query fires ONCE per day transition, not every tick
+                let today = now.format("%Y-%m-%d").to_string();
+                let mut prev = last_date.borrow_mut();
+                if *prev != today {
+                    tracing::info!("Date changed: {} → {}", *prev, today);
+                    *prev = today;
+                    drop(prev); // release borrow before calling init_dates
+                    callbacks::dashboard::init_dates(&ui);
+                    if DashboardState::get(&ui).get_auto_refresh() {
+                        DashboardState::get(&ui).invoke_load_transactions();
+                    }
+                }
             }
         },
     );

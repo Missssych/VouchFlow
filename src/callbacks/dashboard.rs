@@ -318,10 +318,10 @@ pub fn register(
             rth.spawn(async move {
                 let tx_info = db
                     .with_reader(|conn| {
-                        let ids: (String, String) = conn.query_row(
-                            "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
+                        let ids: (String, String, String, String, String, f64) = conn.query_row(
+                            "SELECT tx_id, request_id, nomor, kode_produk as produk, kategori, harga FROM transactions WHERE rowid = ?",
                             [tx_id as i64],
-                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
                         )?;
                         let webhook_addr: Option<String> = conn
                             .query_row(
@@ -340,25 +340,29 @@ pub fn register(
                         let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
                         let port = webhook_port.unwrap_or_else(|| "8081".to_string());
                         let webhook_url = build_webhook_url(&addr, &port);
-                        Ok((ids.0, ids.1, webhook_url))
+                        Ok((ids.0, ids.1, ids.2, ids.3, ids.4, ids.5, webhook_url))
                     })
                     .await;
 
-                if let Ok((tx_id_str, request_id, webhook_url)) = tx_info {
+                if let Ok((tx_id_str, request_id, nomor, produk, kategori, harga, webhook_url)) = tx_info {
                     let _ = cmd_tx
                         .send(vouchflow::domain::DbCommand::ManualSuccess {
                             tx_id: tx_id_str.clone(),
                             result_code: "00".to_string(),
-                            result_payload: Some("Manual success by admin".to_string()),
+                            result_payload: Some("Transaksi disukseskan".to_string()),
                         })
                         .await;
                     vouchflow::utils::send_webhook(
                         &webhook_url,
                         &request_id,
                         &tx_id_str,
+                        &nomor,
+                        &produk,
+                        &kategori,
+                        harga,
                         "SUCCESS",
                         Some("00"),
-                        Some("Manual success by admin"),
+                        Some("Transaksi disukseskan"),
                     )
                     .await;
                     let _ = slint::invoke_from_event_loop(move || {
@@ -385,10 +389,10 @@ pub fn register(
             rth.spawn(async move {
                 let tx_info = db
                     .with_reader(|conn| {
-                        let ids: (String, String) = conn.query_row(
-                            "SELECT tx_id, request_id FROM transactions WHERE rowid = ?",
+                        let ids: (String, String, String, String, String, f64, Option<String>, String) = conn.query_row(
+                            "SELECT tx_id, request_id, nomor, kode_produk, kategori, harga, sn, status FROM transactions WHERE rowid = ?",
                             [tx_id as i64],
-                            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
                         )?;
                         let webhook_addr: Option<String> = conn
                             .query_row(
@@ -407,27 +411,67 @@ pub fn register(
                         let addr = webhook_addr.unwrap_or_else(|| "127.0.0.1".to_string());
                         let port = webhook_port.unwrap_or_else(|| "8081".to_string());
                         let webhook_url = build_webhook_url(&addr, &port);
-                        Ok((ids.0, ids.1, webhook_url))
+                        Ok((ids.0, ids.1, ids.2, ids.3, ids.4, ids.5, ids.6, ids.7, webhook_url))
                     })
                     .await;
 
-                if let Ok((tx_id_str, request_id, webhook_url)) = tx_info {
+                if let Ok((tx_id_str, request_id, nomor, produk, kategori, harga, sn, current_status, webhook_url)) = tx_info {
+                    // Restore voucher to ACTIVE if transaction is not already FAILED
+                    // and kategori is RDM (redeem) or FIS (physical) which use stock vouchers
+                    if current_status != "FAILED" {
+                        let kat_upper = kategori.to_uppercase();
+                        if kat_upper == "RDM" || kat_upper == "FIS" {
+                            if let Some(ref serial) = sn {
+                                if !serial.is_empty() {
+                                    let voucher_lookup = db
+                                        .with_reader(|conn| {
+                                            let vid: Option<i64> = conn
+                                                .query_row(
+                                                    "SELECT id FROM stok_voucher WHERE serial_number = ? AND status IN ('USED', 'RESERVED')",
+                                                    [serial],
+                                                    |row| row.get(0),
+                                                )
+                                                .ok();
+                                            Ok(vid)
+                                        })
+                                        .await;
+                                    if let Ok(Some(vid)) = voucher_lookup {
+                                        let _ = cmd_tx
+                                            .send(vouchflow::domain::DbCommand::ChangeStokStatus {
+                                                ids: vec![vid],
+                                                new_status: "ACTIVE".to_string(),
+                                            })
+                                            .await;
+                                        tracing::info!(
+                                            "Restored voucher id={} sn={} to ACTIVE (admin mark-failed tx={})",
+                                            vid, serial, tx_id_str
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let _ = cmd_tx
                         .send(vouchflow::domain::DbCommand::UpdateTransaction {
                             tx_id: tx_id_str.clone(),
                             status: vouchflow::domain::TransactionStatus::Failed,
                             sn: None,
                             result_code: Some("99".to_string()),
-                            result_payload: Some("Marked as failed by admin".to_string()),
+                            result_payload: Some("Transaksi digagalkan".to_string()),
                         })
                         .await;
                     vouchflow::utils::send_webhook(
                         &webhook_url,
                         &request_id,
                         &tx_id_str,
+                        &nomor,
+                        &produk,
+                        &kategori,
+                        harga,
                         "FAILED",
                         Some("99"),
-                        Some("Marked as failed by admin"),
+                        Some("Transaksi digagalkan"),
                     )
                     .await;
                     let _ = slint::invoke_from_event_loop(move || {
@@ -482,6 +526,11 @@ pub fn register(
                         Some(t) => t,
                         None => { tracing::error!("Retry failed: invalid kategori {}", kategori); return; }
                     };
+                    
+                    let kategori_clone = kategori.clone();
+                    let nomor_clone = nomor.clone();
+                    let kode_produk_clone = kode_produk.clone();
+
                     let command = vouchflow::domain::Command::with_product_info(
                         old_request_id.clone(), tx_type, provider, kode_produk, kategori, harga, kode_addon, produk, nomor, None,
                     ).with_retry_target(old_tx_id.clone());
@@ -491,6 +540,7 @@ pub fn register(
                         let _db_cmd_for_poll = db_cmd_tx.clone();
                         let retry_tx_id = old_tx_id.clone();
                         let retry_request_id = old_request_id.clone();
+                        
                         tokio::spawn(async move {
                             for _ in 0..60 {
                                 let status_row = db_for_poll.with_reader(|conn| {
@@ -504,8 +554,12 @@ pub fn register(
                                 if let Ok(Some((status, result_code, result_payload))) = status_row {
                                     let status_upper = status.to_uppercase();
                                     if status_upper == "SUCCESS" || status_upper == "FAILED" || status_upper == "EXPIRED" {
+                                        let produk_webhook = kode_produk_clone.clone(); 
+                                        let nomor_webhook = nomor_clone.clone();
+                                        let kategori_webhook = kategori_clone.clone();
                                         vouchflow::utils::send_webhook(
                                             &webhook_url, &retry_request_id, &retry_tx_id,
+                                            &nomor_webhook, &produk_webhook, &kategori_webhook, harga,
                                             &status_upper, result_code.as_deref(), result_payload.as_deref(),
                                         ).await;
                                         break;
