@@ -16,6 +16,7 @@
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::Model; // For ModelRc::iter()
+use single_instance::SingleInstance;
 
 // Re-export library
 use vouchflow::{
@@ -33,6 +34,39 @@ use vouchflow::{
 
 slint::include_modules!();
 mod callbacks;
+
+const APP_SINGLE_INSTANCE_ID: &str = "com.galang.vouchflow.single-instance";
+#[cfg(target_os = "windows")]
+const APP_WINDOW_TITLE: &str = "MainWindow";
+
+#[cfg(target_os = "windows")]
+fn focus_existing_window() {
+    use std::{iter, thread, time::Duration};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindowAsync,
+    };
+
+    let title: Vec<u16> = APP_WINDOW_TITLE
+        .encode_utf16()
+        .chain(iter::once(0))
+        .collect();
+
+    for _ in 0..10 {
+        // Find the already-running main window and bring it to front.
+        let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
+        if !hwnd.is_null() {
+            unsafe {
+                if IsIconic(hwnd) != 0 {
+                    ShowWindowAsync(hwnd, SW_RESTORE);
+                }
+                SetForegroundWindow(hwnd);
+            }
+            break;
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+}
 
 fn build_logs_table_model(
     logs: &[vouchflow::domain::LogEntry],
@@ -77,6 +111,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize tracing
     init_tracing();
     tracing::info!("Starting App-Voucher");
+
+    let single_instance = SingleInstance::new(APP_SINGLE_INSTANCE_ID)?;
+    if !single_instance.is_single() {
+        tracing::warn!("Second instance detected, focusing existing window and exiting");
+        #[cfg(target_os = "windows")]
+        focus_existing_window();
+        return Ok(());
+    }
 
     // 2. Load configuration
     let config = AppConfig::from_env();

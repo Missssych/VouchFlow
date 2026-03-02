@@ -38,6 +38,7 @@ thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+single-instance = "0.3"
 
 # Async channel patterns
 async-channel = "2.3"
@@ -52,6 +53,9 @@ base64 = "0.22"
 
 # Async trait
 async-trait = "0.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 
 [build-dependencies]
